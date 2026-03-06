@@ -2,12 +2,12 @@
 
 > Instant API auto-discovery and health-check CLI for Express.js
 
-[![npm version](https://img.shields.io/npm/v/apisnap.svg)](https://www.npmjs.com/package/apisnap)
+[![npm version](https://img.shields.io/npm/v/@umeshindu222/apisnap.svg)](https://www.npmjs.com/package/@umeshindu222/apisnap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## 🤔 Why APISnap?
+##  Why APISnap?
 
 **The Problem:** Every time you make a change to your Express.js backend, you have to manually open Postman, find every route, and click "Send" one by one. For a project with 20+ endpoints, this is slow, error-prone, and boring.
 
@@ -15,24 +15,28 @@
 
 ---
 
-## ✨ Features
+##  Features
 
-- 🔍 **Auto Route Discovery** — Scans your Express router stack, no manual config needed
-- 🔒 **Auth Header Support** — Pass JWT tokens or API keys via `--header`
-- ⚠️ **Slow Route Detection** — Flags endpoints that exceed your response time threshold
-- 💾 **JSON Report Export** — Save results to a file for CI/CD pipelines or sharing
-- 🎨 **Beautiful CLI Output** — Color-coded results with spinners and summary table
-- 🔄 **Express v4 & v5** — Compatible with both versions
+-  **Auto Route Discovery** — Scans your Express router stack, no manual config needed
+-  **Auth Header Support** — Pass JWT tokens or API keys via `--header`
+-  **Slow Route Detection** — Flags endpoints that exceed your response time threshold
+-  **JSON Report Export** — Save results to a file for CI/CD pipelines or sharing
+-  **Beautiful CLI Output** — Color-coded results with spinners and summary table
+-  **Express v4 & v5** — Compatible with both versions
 
 ---
 
 ## 🚀 Quick Start
 
-### Step 1: Add the middleware to your Express app
+### Step 1: Install and add the middleware to your Express app
+
+```bash
+npm install @umeshindu222/apisnap
+```
 
 ```javascript
 const express = require('express');
-const apisnap = require('apisnap');
+const apisnap = require('@umeshindu222/apisnap');
 
 const app = express();
 
@@ -49,7 +53,7 @@ app.listen(3000);
 ### Step 2: Run the health check
 
 ```bash
-npx apisnap --port 3000
+npx @umeshindu222/apisnap --port 3000
 ```
 
 That's it. APISnap finds and tests every route automatically.
@@ -59,7 +63,7 @@ That's it. APISnap finds and tests every route automatically.
 ## 📋 CLI Usage
 
 ```bash
-npx apisnap [options]
+npx @umeshindu222/apisnap [options]
 ```
 
 | Option | Description | Default |
@@ -73,37 +77,37 @@ npx apisnap [options]
 
 ---
 
-## 🧪 Examples
+##  Examples
 
 ### Basic health check
 ```bash
-npx apisnap --port 3000
+npx @umeshindu222/apisnap --port 3000
 ```
 
-### With authentication
+### With authentication (JWT / Bearer tokens)
 ```bash
-npx apisnap --port 3000 --header "Authorization: Bearer eyJhbGci..."
+npx @umeshindu222/apisnap --port 3000 --header "Authorization: Bearer eyJhbGci..."
 ```
 
 ### Custom slow threshold (flag routes > 500ms)
 ```bash
-npx apisnap --port 3000 --slow 500
+npx @umeshindu222/apisnap --port 3000 --slow 500
 ```
 
 ### Export report to JSON
 ```bash
-npx apisnap --port 3000 --export my-report
+npx @umeshindu222/apisnap --port 3000 --export my-report
 # Creates: my-report.json
 ```
 
 ### All options together
 ```bash
-npx apisnap --port 5000 --header "Authorization: Bearer TOKEN" --slow 300 --export ci-report
+npx @umeshindu222/apisnap --port 5000 --header "Authorization: Bearer TOKEN" --slow 300 --export ci-report
 ```
 
 ---
 
-## 📊 Sample Output
+##  Sample Output
 
 ```
 📸 APISnap v1.0.0
@@ -111,11 +115,11 @@ npx apisnap --port 5000 --header "Authorization: Bearer TOKEN" --slow 300 --expo
 
 ✔ Connected! Found 6 endpoints.
 
-✔  GET    /health          [200 OK]  3ms
+✔  GET    /health          [200 OK]   3ms
 ✔  GET    /users           [200 OK]  12ms
-✔  POST   /users           [200 OK]  8ms
+✔  POST   /users           [200 OK]   8ms
 ✔  GET    /users/1         [200 OK]  15ms
-⚠️  GET    /reports         [200 OK]  543ms   ← slow!
+⚠️  GET    /reports         [200 OK] 543ms   ← slow!
 ✖  DELETE /users/1         [401]
 
 📊 Summary:
@@ -139,13 +143,14 @@ When using `--export`, a structured JSON file is created:
   "config": { "port": "3000", "slowThreshold": 200 },
   "summary": { "total": 6, "passed": 5, "failed": 1, "slow": 1 },
   "results": [
-    { "method": "GET", "path": "/health", "status": 200, "duration": 3, "success": true, "slow": false },
-    { "method": "GET", "path": "/users",  "status": 200, "duration": 12, "success": true, "slow": false }
+    { "method": "GET", "path": "/health",  "status": 200, "duration": 3,  "success": true,  "slow": false },
+    { "method": "GET", "path": "/users",   "status": 200, "duration": 12, "success": true,  "slow": false },
+    { "method": "GET", "path": "/reports", "status": 200, "duration": 543,"success": true,  "slow": true  }
   ]
 }
 ```
 
-> **Pro tip:** Use this in CI/CD pipelines — parse `summary.failed` and fail the build if it's greater than 0!
+> **CI/CD tip:** Parse `summary.failed` and fail your pipeline build if it's greater than `0`!
 
 ---
 
@@ -153,9 +158,9 @@ When using `--export`, a structured JSON file is created:
 
 APISnap uses a two-part architecture:
 
-1. **Middleware (The Seeker)** — `apisnap.init(app)` injects a hidden endpoint `/__apisnap_discovery` into your Express app. When called, it recursively walks the Express router stack and returns a map of every registered route.
+1. **Middleware (The Seeker)** — `apisnap.init(app)` injects a hidden endpoint `/__apisnap_discovery` into your Express app. When called, it recursively walks the Express router stack and returns a map of every registered route — including nested sub-routers.
 
-2. **CLI Runner (The Checker)** — `npx apisnap` calls the discovery endpoint, gets the route map, then "pings" each route using axios — injecting your headers, replacing path params with defaults (`:id` → `1`), and timing each response.
+2. **CLI Runner (The Checker)** — `npx @umeshindu222/apisnap` calls the discovery endpoint, gets the route map, then "pings" each route using axios — injecting your headers, replacing path params with safe defaults (`:id` → `1`), and timing each response.
 
 ---
 
