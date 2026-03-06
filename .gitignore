@@ -20,3 +20,6 @@ Thumbs.db
 
 # Local test files (not part of the package)
 test-server.js
+
+# Generated report files
+*-report.json
