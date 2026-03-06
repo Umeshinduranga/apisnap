@@ -11,7 +11,7 @@
 
 **The Problem:** Every time you make a change to your Express.js backend, you have to manually open Postman, find every route, and click "Send" one by one. For a project with 20+ endpoints, this is slow, error-prone, and boring.
 
-**The Solution:** APISnap plugs directly into your Express app, **automatically discovers every route you've registered**, and then health-checks all of them in seconds — with zero configuration.
+**The Solution:** APISnap plugs directly into your Express app, **automatically discovers every route you've registered**, and then health-checks all of them in seconds with zero configuration.
 
 ---
 
