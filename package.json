@@ -1,26 +1,28 @@
 {
   "name": "apisnap",
   "version": "1.0.0",
-  "description": "Instant API health checks and auto-discovery for Express.js",
-  "main": "dist/index.js",
+  "description": "Instant API auto-discovery and health-check CLI for Express.js",
+  "main": "dist/middleware/index.js",
+  "types": "dist/middleware/index.d.ts",
   "bin": {
     "apisnap": "bin/cli.js"
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
-    "watch": "tsc -w",
-    "prepare": "npm run build"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "express",
     "api",
     "testing",
     "health-check",
-    "cli"
+    "cli",
+    "automation"
   ],
   "author": "Umesh Induranga",
   "license": "MIT",
@@ -28,7 +30,6 @@
     "axios": "^1.13.6",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
-    "express": "^5.2.1",
     "ora": "^9.3.0"
   },
   "devDependencies": {
