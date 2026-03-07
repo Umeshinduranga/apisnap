@@ -17,16 +17,29 @@ export const init = (app: any) => {
                 routes.push({ path: path.replace('//', '/'), methods });
             } else if (layer.handle && layer.handle.stack) {
                 // Nested Router - GO DEEPER
-                // Extract the prefix from the regexp (e.g. /api)
-                const match = layer.regexp
-                    .toString()
-                    .match(/^\/\^\\?(.*?)\\?\/?(?:\(\?=\\\/\|\$\))?\//);
-                const routerPrefix = match
-                    ? match[1].replace(/\\\//g, '/')
-                    : '';
-                routes = routes.concat(
-                    splitRoutes(layer.handle.stack, prefix + '/' + routerPrefix)
-                );
+                // Extract the prefix from the regexp (e.g. /api or /api/community)
+                let rStr = layer.regexp.toString();
+                let routerPrefix = '';
+
+                // Try to match standard Express router regexp: /^\/api\/?(?=\/|$)/i
+                const standardMatch = rStr.match(/^\/\^\\\/(.*?)\\\/\?\(\?\=\\\/\|\$\)\/i$/);
+                if (standardMatch) {
+                    routerPrefix = standardMatch[1];
+                } else {
+                    // Fallback for custom or older regexes
+                    const fallbackMatch = rStr.match(/^\/\^\\?(.*?)\\?\/?(?:\(\?=\\\/\|\$\))?\//);
+                    routerPrefix = fallbackMatch ? fallbackMatch[1] : '';
+                }
+
+                routerPrefix = routerPrefix.replace(/\\\//g, '/');
+                if (routerPrefix && !routerPrefix.startsWith('/')) {
+                    routerPrefix = '/' + routerPrefix;
+                }
+
+                // Avoid double slashes in concatenation
+                const newPrefix = (prefix + routerPrefix).replace(/\/\//g, '/');
+
+                routes = routes.concat(splitRoutes(layer.handle.stack, newPrefix));
             }
         });
         return routes;
