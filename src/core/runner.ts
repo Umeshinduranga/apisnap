@@ -3,7 +3,6 @@ import axios from 'axios';
 import chalk from 'chalk';
 import ora from 'ora';
 import { Command } from 'commander';
-import path from 'path';
 
 const program = new Command();
 
@@ -13,45 +12,36 @@ program
     .name('apisnap')
     .description('Instant API health-check CLI for Express.js')
     .version(version)
-    .option('-p, --port <number>', 'Override port')
-    .option('-H, --header <string>', 'One-time header (Key:Value)')
-    .option('-s, --slow <number>', 'Override slow threshold (ms)')
-    .option('-e, --export <filename>', 'Export results to JSON file (e.g., report.json)')
+    .option('-p, --port <number>', 'The port your server is running on', '3000')
+    .option('-H, --header <string>', 'Add a custom header (e.g., "Authorization: Bearer token")')
+    .option('-s, --slow <number>', 'Threshold for slow response warning (ms)', '200')
+    .option('-e, --export <filename>', 'Export results to a JSON file (e.g., report.json)')
     .action(async (options) => {
-        let config: any = { port: 3000, slowThreshold: 200, headers: {} };
-
-        // Smart Merge: Load shared, then override with local
-        ['apisnap.json', 'apisnap.local.json'].forEach(file => {
-            const filePath = path.join(process.cwd(), file);
-            if (fs.existsSync(filePath)) {
-                try {
-                    const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                    config = {
-                        ...config,
-                        ...fileData,
-                        headers: { ...config.headers, ...fileData.headers }
-                    };
-                } catch (e) {
-                    console.log(chalk.yellow(`⚠️  Warning: Failed to parse ${file}`));
-                }
-            }
-        });
-
-        // Final Priority: CLI Flags always win
-        const port = options.port || config.port;
-        const slowThreshold = options.slow ? parseInt(options.slow) : config.slowThreshold;
-        const finalHeaders = { ...config.headers };
-
-        if (options.header) {
-            const [key, ...val] = options.header.split(':');
-            finalHeaders[key.trim()] = val.join(':').trim();
-        }
-
+        const port = options.port;
+        const slowThreshold = parseInt(options.slow);
         const discoveryUrl = `http://localhost:${port}/__apisnap_discovery`;
         const results: any[] = []; // Collect all test results here
 
+        // Parse custom header from CLI flag
+        const customHeaders: any = {};
+        if (options.header) {
+            const [key, ...value] = options.header.split(':');
+            if (key && value) {
+                customHeaders[key.trim()] = value.join(':').trim();
+            }
+        }
+
         console.log(chalk.bold.cyan(`\n📸 APISnap v${version}`));
-        console.log(chalk.gray(` 🔌 Port: ${port} | 🛡️  Auth: ${finalHeaders.Authorization ? 'Detected' : 'None'}\n`));
+
+        // Show active options
+        if (Object.keys(customHeaders).length > 0) {
+            console.log(chalk.gray(`   Headers: ${JSON.stringify(customHeaders)}`));
+        }
+        console.log(chalk.gray(`   Slow threshold: ${slowThreshold}ms`));
+        if (options.export) {
+            console.log(chalk.gray(`   Export: ${options.export}`));
+        }
+        console.log();
 
         const spinner = ora('Connecting to your API...').start();
 
@@ -97,9 +87,8 @@ program
                         method: method,
                         url: fullUrl,
                         headers: {
-                            ...finalHeaders,
-                            'x-apisnap-key': 'apisnap_secret_handshake_2024',
-                            'User-Agent': `APISnap/${version}`,
+                            ...customHeaders,
+                            'User-Agent': 'APISnap/1.0.0',
                         },
                         timeout: 5000,
                     });
@@ -168,7 +157,7 @@ program
                     config: {
                         port,
                         slowThreshold,
-                        headers: finalHeaders,
+                        headers: customHeaders,
                     },
                     summary: {
                         total: endpoints.length,
@@ -193,35 +182,6 @@ program
             );
             process.exit(1);
         }
-    });
-
-program
-    .command('init')
-    .description('Initialize APISnap configuration files')
-    .action(() => {
-        const sharedConfig = {
-            port: 3000,
-            slowThreshold: 200,
-            description: "Shared project API settings"
-        };
-
-        const localConfig = {
-            headers: {
-                Authorization: "Bearer YOUR_PRIVATE_TOKEN_HERE"
-            }
-        };
-
-        // Create the files in the user's current directory
-        fs.writeFileSync('apisnap.json', JSON.stringify(sharedConfig, null, 2));
-        fs.writeFileSync('apisnap.local.json', JSON.stringify(localConfig, null, 2));
-
-        console.log(chalk.green.bold('\n✨ APISnap Initialized Successfully!'));
-        console.log(chalk.cyan('Created:'));
-        console.log(` 📄 ${chalk.white('apisnap.json')}        (Shared - Push to GitHub)`);
-        console.log(` 📄 ${chalk.yellow('apisnap.local.json')}  (Private - DO NOT PUSH)`);
-
-        console.log(chalk.red.bold('\n⚠️  IMPORTANT SECURITY STEP:'));
-        console.log(`Add ${chalk.yellow.bold('apisnap.local.json')} to your ${chalk.white('.gitignore')} file now!\n`);
     });
 
 program.parse(process.argv);
