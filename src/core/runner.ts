@@ -6,10 +6,12 @@ import { Command } from 'commander';
 
 const program = new Command();
 
+const { version } = require('../../package.json');
+
 program
     .name('apisnap')
     .description('Instant API health-check CLI for Express.js')
-    .version('1.0.0')
+    .version(version)
     .option('-p, --port <number>', 'The port your server is running on', '3000')
     .option('-H, --header <string>', 'Add a custom header (e.g., "Authorization: Bearer token")')
     .option('-s, --slow <number>', 'Threshold for slow response warning (ms)', '200')
@@ -29,7 +31,7 @@ program
             }
         }
 
-        console.log(chalk.bold.cyan(`\n📸 APISnap v1.0.0`));
+        console.log(chalk.bold.cyan(`\n📸 APISnap v${version}`));
 
         // Show active options
         if (Object.keys(customHeaders).length > 0) {
