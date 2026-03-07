@@ -1,7 +1,22 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 
 export const init = (app: any) => {
+    const MASTER_KEY = 'apisnap_secret_handshake_2024';
     const DISCOVERY_PATH = '/__apisnap_discovery';
+
+    // --- THE VIP GATE ---
+    app.use((req: Request, res: Response, next: NextFunction) => {
+        const clientKey = req.headers['x-apisnap-key'];
+        const isLocal = req.hostname === 'localhost' || req.hostname === '127.0.0.1';
+
+        // If the key matches AND it's local, we bypass ALL other auth (Better Auth, etc.)
+        if (clientKey === MASTER_KEY && isLocal) {
+            // We "mock" a dev user so the routes think someone is logged in
+            (req as any).user = { id: 'dev-bypass', role: 'admin', name: 'APISnap-Bot' };
+            return next();
+        }
+        next();
+    });
 
     // Recursive function to find ALL routes, even in sub-routers
     const splitRoutes = (stack: any[], prefix = ''): any[] => {

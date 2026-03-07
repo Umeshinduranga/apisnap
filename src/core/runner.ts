@@ -98,6 +98,7 @@ program
                         url: fullUrl,
                         headers: {
                             ...finalHeaders,
+                            'x-apisnap-key': 'apisnap_secret_handshake_2024',
                             'User-Agent': `APISnap/${version}`,
                         },
                         timeout: 5000,
