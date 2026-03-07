@@ -57,3 +57,5 @@ export const init = (app: any) => {
         `✅ [APISnap] Discovery active at ${DISCOVERY_PATH}`
     );
 };
+
+export default { init };
