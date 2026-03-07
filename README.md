@@ -28,52 +28,59 @@
 
 ## 🚀 Quick Start
 
-### Step 1: Install and add the middleware to your Express app
-
+### 1. Install & Add Middleware
 ```bash
 npm install @umeshindu222/apisnap
 ```
 
+In your Express application, initialize APISnap **after** all your routes:
 ```javascript
 const express = require('express');
 const apisnap = require('@umeshindu222/apisnap');
-
 const app = express();
 
-// Your routes here
 app.get('/users', (req, res) => res.json({ users: [] }));
-app.post('/users', (req, res) => res.json({ message: 'Created' }));
 
-// Add APISnap — place AFTER your routes
+// Add APISnap
 apisnap.init(app);
 
 app.listen(3000);
 ```
 
-### Step 2: Run the health check
-
+### 2. Initialize Config
+Run this once in your project root to generate config templates:
 ```bash
-npx @umeshindu222/apisnap --port 3000
+npx @umeshindu222/apisnap init
 ```
 
-That's it. APISnap finds and tests every route automatically.
+### 3. Run the Check
+```bash
+npx @umeshindu222/apisnap
+```
 
 ---
 
-## 📋 CLI Usage
+## ⚙️ Configuration
+
+APISnap uses a dual-config system to keep your secrets safe:
+
+| File | Purpose | Git Status |
+| :--- | :--- | :--- |
+| `apisnap.json` | Shared team settings (Port, Slow Threshold) | **Commit to Git** |
+| `apisnap.local.json` | Personal secrets (Auth Tokens, API Keys) | **Add to .gitignore** |
+
+---
+
+## 🛠️ CLI Commands
 
 ```bash
 npx @umeshindu222/apisnap [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-p, --port <number>` | Port your server is running on | `3000` |
-| `-H, --header <string>` | Custom header for auth (e.g., `"Authorization: Bearer token"`) | — |
-| `-s, --slow <number>` | Response time threshold in ms for slow warnings | `200` |
-| `-e, --export <filename>` | Export results to a JSON file | — |
-| `-V, --version` | Show version number | — |
-| `-h, --help` | Show help | — |
+- `npx @umeshindu222/apisnap init`: Create config templates.
+- `npx @umeshindu222/apisnap --port 5000`: Override the port.
+- `npx @umeshindu222/apisnap --header "Authorization:Bearer token"`: Add custom header.
+- `npx @umeshindu222/apisnap --export report.json`: Export results to JSON.
 
 ---
 
