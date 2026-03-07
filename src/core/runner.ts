@@ -3,6 +3,7 @@ import axios from 'axios';
 import chalk from 'chalk';
 import ora from 'ora';
 import { Command } from 'commander';
+import path from 'path';
 
 const program = new Command();
 
@@ -17,10 +18,17 @@ program
     .option('-s, --slow <number>', 'Threshold for slow response warning (ms)', '200')
     .option('-e, --export <filename>', 'Export results to a JSON file (e.g., report.json)')
     .action(async (options) => {
-        const port = options.port;
-        const slowThreshold = parseInt(options.slow);
-        const discoveryUrl = `http://localhost:${port}/__apisnap_discovery`;
-        const results: any[] = []; // Collect all test results here
+        // Look for apisnap.json in the current directory
+        const configPath = path.join(process.cwd(), 'apisnap.json');
+        let config: any = {};
+
+        if (fs.existsSync(configPath)) {
+            try {
+                config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            } catch (e) {
+                console.log(chalk.red('Failed to parse apisnap.json'));
+            }
+        }
 
         // Parse custom header from CLI flag
         const customHeaders: any = {};
@@ -31,11 +39,26 @@ program
             }
         }
 
+        // Merge config with CLI options (CLI options override config file)
+        // options.port defaults to '3000' because of commander's default options, 
+        // so we check if the user actually provided it or if it's the raw default.
+        const port = program.opts().port !== '3000' ? options.port : (config.port || '3000');
+        const slowThreshold = parseInt(program.opts().slow !== '200' ? options.slow : (config.slowThreshold || 200));
+
+        const headers = { ...config.headers, ...customHeaders };
+
+        const discoveryUrl = `http://localhost:${port}/__apisnap_discovery`;
+        const results: any[] = []; // Collect all test results here
+
         console.log(chalk.bold.cyan(`\n📸 APISnap v${version}`));
 
+        if (Object.keys(config).length > 0) {
+            console.log(chalk.gray('   ⚙️  Loaded configuration from apisnap.json'));
+        }
+
         // Show active options
-        if (Object.keys(customHeaders).length > 0) {
-            console.log(chalk.gray(`   Headers: ${JSON.stringify(customHeaders)}`));
+        if (Object.keys(headers).length > 0) {
+            console.log(chalk.gray(`   Headers: ${JSON.stringify(headers)}`));
         }
         console.log(chalk.gray(`   Slow threshold: ${slowThreshold}ms`));
         if (options.export) {
@@ -87,7 +110,7 @@ program
                         method: method,
                         url: fullUrl,
                         headers: {
-                            ...customHeaders,
+                            ...headers,
                             'User-Agent': 'APISnap/1.0.0',
                         },
                         timeout: 5000,
