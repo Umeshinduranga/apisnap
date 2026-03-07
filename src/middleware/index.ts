@@ -34,8 +34,15 @@ export const init = (app: any) => {
 
     app.get(DISCOVERY_PATH, (req: Request, res: Response) => {
         try {
-            // Express v5 uses app.router, Express v4 uses app._router
-            const router = app.router || app._router;
+            // Safely get Express router (v4 uses _router, v5 uses router)
+            let router = app._router;
+            if (!router) {
+                try {
+                    router = app.router;
+                } catch (err) {
+                    // Ignore getter deprecation errors from Express 4
+                }
+            }
             if (!router) {
                 res.status(500).json({ error: 'Router not initialized yet' });
                 return;
