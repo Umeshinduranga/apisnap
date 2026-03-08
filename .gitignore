@@ -23,3 +23,8 @@ test-server.js
 
 # Generated report files
 *-report.json
+
+# APISnap configuration files
+.apisnaprc
+.apisnaprc.json
+apisnap.config.json
