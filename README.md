@@ -17,17 +17,17 @@ One command. Every route. Instant results.
 
 ## Features
 
-- 🔍 **Auto Route Discovery** — finds every route including nested sub-routers
-- 🔐 **Full Auth Support** — JWT, API Keys, Cookies, multiple headers at once
-- 💡 **Auth Hints** — tells you exactly how to fix 401/403 errors
-- ⚡ **Slow Route Detection** — flags endpoints that are too slow
-- 🔁 **Retry Logic** — auto-retries failed requests
-- 📊 **HTML Reports** — beautiful visual reports you can share
-- 💾 **JSON Export** — structured output for CI/CD pipelines
-- ⚙️ **Config File** — save your settings so you don't retype every time
-- 🎯 **Method Filter** — test only GET, POST, DELETE etc.
-- 🧠 **Smart Path Params** — auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
-- 🚀 **Express v4 & v5** — works with both versions
+-  **Auto Route Discovery** — finds every route including nested sub-routers
+-  **Full Auth Support** — JWT, API Keys, Cookies, multiple headers at once
+-  **Auth Hints** — tells you exactly how to fix 401/403 errors
+-  **Slow Route Detection** — flags endpoints that are too slow
+-  **Retry Logic** — auto-retries failed requests
+-  **HTML Reports** — beautiful visual reports you can share
+-  **JSON Export** — structured output for CI/CD pipelines
+-  **Config File** — save your settings so you don't retype every time
+-  **Method Filter** — test only GET, POST, DELETE etc.
+-  **Smart Path Params** — auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
+-  **Express v4 & v5** — works with both versions
 
 ---
 
