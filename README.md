@@ -7,149 +7,310 @@
 
 ---
 
-## Why APISnap?
+## What is APISnap?
 
-Every time you change your Express backend, manually testing 20+ endpoints in Postman is slow and error-prone. APISnap **auto-discovers every route** and health-checks all of them in seconds — with zero config.
+Every time you change your Express backend, manually testing all your routes in Postman is slow and boring. **APISnap auto-discovers every route in your app and health-checks all of them in seconds** — with zero configuration.
+
+One command. Every route. Instant results.
 
 ---
 
 ## Features
 
-- 🔍 **Auto Route Discovery** — Scans your full Express router stack including sub-routers
-- 🔐 **Full Auth Support** — JWT, API Keys, Cookies, multiple headers simultaneously
-- 🔁 **Retry Logic** — Auto-retry failed requests with exponential backoff
-- ⚡ **Slow Route Detection** — Flags endpoints exceeding your threshold
-- 📊 **HTML Reports** — Beautiful visual reports for sharing/archiving
-- 💾 **JSON Export** — Structured output for CI/CD pipelines
-- ⚙️ **Config File** — Persist options in `.apisnaprc.json`
-- 🎯 **Method Filter** — Test only GET, POST, etc.
-- 🧠 **Smart Params** — Auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
-- 🚨 **Auth Hints** — Tells you exactly how to fix 401/403 errors
-- 🏗️ **CI/CD Ready** — Exit code 1 on failures for pipeline integration
+- 🔍 **Auto Route Discovery** — finds every route including nested sub-routers
+- 🔐 **Full Auth Support** — JWT, API Keys, Cookies, multiple headers at once
+- 💡 **Auth Hints** — tells you exactly how to fix 401/403 errors
+- ⚡ **Slow Route Detection** — flags endpoints that are too slow
+- 🔁 **Retry Logic** — auto-retries failed requests
+- 📊 **HTML Reports** — beautiful visual reports you can share
+- 💾 **JSON Export** — structured output for CI/CD pipelines
+- ⚙️ **Config File** — save your settings so you don't retype every time
+- 🎯 **Method Filter** — test only GET, POST, DELETE etc.
+- 🧠 **Smart Path Params** — auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
+- 🚀 **Express v4 & v5** — works with both versions
 
 ---
 
 ## Quick Start
 
-### Step 1 — Install & add middleware
+### Step 1 — Install
 
 ```bash
 npm install @umeshindu222/apisnap
 ```
+
+### Step 2 — Add to your server file
+
+Open your main server file (`server.js`, `app.js`, `app.ts`) and add **2 lines**:
+
+```javascript
+const apisnap = require('@umeshindu222/apisnap'); // ADD THIS at the top
+
+// ... all your existing routes stay exactly the same ...
+
+apisnap.init(app); // ADD THIS — after your routes
+```
+
+### Step 3 — Start your server
+
+```bash
+node server.js
+# or
+npm run dev
+```
+
+You will see this line confirming it works:
+```
+✅ [APISnap] Discovery active → http://localhost:3000/__apisnap_discovery
+```
+
+### Step 4 — Run the health check
+
+Open a **second terminal** in your project folder and run:
+
+```bash
+npx @umeshindu222/apisnap --port 3000
+```
+
+That's it. You will see every route tested automatically.
+
+---
+
+## Full Setup Examples
+
+### JavaScript (CommonJS)
 
 ```javascript
 const express = require('express');
 const apisnap = require('@umeshindu222/apisnap');
 
 const app = express();
+app.use(express.json());
 
-// ✅ Your routes go here
+// Your routes
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/users', (req, res) => res.json({ users: [] }));
-app.post('/users', (req, res) => res.json({ message: 'Created' }));
+app.post('/users', (req, res) => res.json({ message: 'created' }));
+app.delete('/users/:id', (req, res) => res.json({ deleted: true }));
 
-// ✅ APISnap goes AFTER your routes (so it can discover them)
-// ✅ APISnap goes BEFORE global auth middleware (to allow discovery)
+// APISnap — place AFTER your routes
 apisnap.init(app);
 
-// ⚠️ If you use global auth middleware, place it AFTER apisnap.init():
-// app.use(authMiddleware); ← AFTER init, not before
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+---
+
+### TypeScript
+
+> ⚠️ **TypeScript users — import must be written exactly like this:**
+
+```typescript
+// ✅ CORRECT — use import * as
+import * as apisnap from '@umeshindu222/apisnap';
+
+// ❌ WRONG — will give "has no default export" red error
+import apisnap from '@umeshindu222/apisnap';
+
+// ❌ WRONG — never mix import and require in TypeScript
+import apisnap from '@umeshindu222/apisnap';
+const apisnap = require('@umeshindu222/apisnap');
+```
+
+Full example:
+
+```typescript
+import express, { Application, Request, Response, NextFunction } from 'express';
+import * as apisnap from '@umeshindu222/apisnap'; // ✅ correct
+
+const app: Application = express();
+app.use(express.json());
+
+// Your routes
+app.get('/health', (req: Request, res: Response) => res.json({ status: 'ok' }));
+app.get('/users', (req: Request, res: Response) => res.json({ users: [] }));
+app.post('/users', (req: Request, res: Response) => res.json({ message: 'created' }));
+
+// APISnap — place AFTER your routes
+apisnap.init(app);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+
+export default app;
+```
+
+If TypeScript still shows a red error under the import, create a file called `apisnap.d.ts` in your project root:
+
+```typescript
+declare module '@umeshindu222/apisnap' {
+  interface APISnapOptions {
+    skip?: string[];
+    name?: string;
+  }
+  export function init(app: any, options?: APISnapOptions): void;
+}
+```
+
+---
+
+### With Sub-Routers (Real World Project)
+
+```javascript
+const express = require('express');
+const apisnap = require('@umeshindu222/apisnap');
+const userRoutes = require('./routes/users');
+const postRoutes = require('./routes/posts');
+const authRoutes = require('./routes/auth');
+
+const app = express();
+app.use(express.json());
+
+// Register all your routers
+app.use('/api/users', userRoutes);
+app.use('/api/posts', postRoutes);
+app.use('/api/auth', authRoutes);
+
+// APISnap discovers ALL routes including sub-routers
+apisnap.init(app);
 
 app.listen(3000);
 ```
 
-### Step 2 — Run
+---
 
-```bash
-npx @umeshindu222/apisnap --port 3000
+### With Global Auth Middleware
+
+> ⚠️ **Important:** If you use global auth middleware (`app.use(authMiddleware)`), you must place `apisnap.init(app)` **before** it. Otherwise auth will block the discovery endpoint.
+
+```javascript
+const express = require('express');
+const apisnap = require('@umeshindu222/apisnap');
+const authMiddleware = require('./middleware/auth');
+
+const app = express();
+app.use(express.json());
+
+// Register routes first
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.use('/api/users', userRoutes);
+app.use('/api/posts', postRoutes);
+
+// ✅ APISnap BEFORE global auth middleware
+apisnap.init(app);
+
+// ✅ Global auth AFTER apisnap
+app.use(authMiddleware);
+
+app.listen(3000);
+```
+
+---
+
+### Skip Specific Routes
+
+```javascript
+// Don't test certain routes (e.g. auth callbacks, webhooks, admin)
+apisnap.init(app, {
+  skip: ['/api/auth', '/webhooks', '/admin']
+});
 ```
 
 ---
 
 ## 🔐 Fixing 401 / 403 Errors
 
-This is the most common issue. APISnap sends real HTTP requests, so **protected routes require credentials** just like any client would.
+401 and 403 errors are **completely normal** — it just means your routes are protected and APISnap needs credentials, exactly like any real client would.
 
 ### JWT / Bearer Token
+
 ```bash
-npx @umeshindu222/apisnap -H "Authorization: Bearer eyJhbGci..."
+npx @umeshindu222/apisnap --port 3000 -H "Authorization: Bearer eyJhbGci..."
 ```
 
-### API Key header
+### API Key
+
 ```bash
-npx @umeshindu222/apisnap -H "x-api-key: my-secret-key"
+npx @umeshindu222/apisnap --port 3000 -H "x-api-key: your-secret-key"
 ```
 
-### Cookie / Session auth
+### Cookie / Session Auth (Passport.js, express-session)
+
 ```bash
-npx @umeshindu222/apisnap --cookie "sessionId=abc123; connect.sid=xyz"
+npx @umeshindu222/apisnap --port 3000 --cookie "connect.sid=s%3Aabc123"
 ```
 
-### Multiple headers at once (`-H` can be repeated)
+### Multiple Headers at Once
+
+The `-H` flag can be repeated as many times as you need:
+
 ```bash
-npx @umeshindu222/apisnap \
+npx @umeshindu222/apisnap --port 3000 \
   -H "Authorization: Bearer TOKEN" \
-  -H "x-tenant-id: acme" \
-  -H "x-api-version: 2"
+  -H "x-api-key: SECRET" \
+  -H "x-tenant-id: my-company"
 ```
 
-### Skip specific protected routes
-```javascript
-// In your server — skip routes you don't want tested:
-apisnap.init(app, {
-  skip: ['/admin', '/internal', '/webhooks']
-});
+### How to Get Your JWT Token
+
+1. Open Postman
+2. Call your login endpoint:
 ```
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
 
-### Use a config file (recommended for teams)
+{
+  "email": "your@email.com",
+  "password": "yourpassword"
+}
+```
+3. Copy the token from the response
+4. Use it in the `-H` flag above
 
-Create `.apisnaprc.json` in your project root:
+---
+
+## ⚙️ Config File (Recommended)
+
+Instead of typing your token every single time, save your settings in a config file. Create `.apisnaprc.json` in your project root:
 
 ```json
 {
   "port": "3000",
   "slow": "300",
   "headers": [
-    "Authorization: Bearer YOUR_DEV_TOKEN",
-    "x-api-key: YOUR_KEY"
-  ],
-  "cookie": "sessionId=dev-session-abc",
-  "params": {
-    "id": "42",
-    "slug": "hello-world",
-    "uuid": "550e8400-e29b-41d4-a716-446655440000"
-  }
+    "Authorization: Bearer YOUR_JWT_TOKEN_HERE"
+  ]
 }
 ```
 
-Then just run:
+Now just run with no flags:
 ```bash
 npx @umeshindu222/apisnap
 ```
 
----
+APISnap reads the config file automatically.
 
-## Middleware Placement (Important!)
+> ⚠️ **Add `.apisnaprc.json` to your `.gitignore`** so your token is never committed to GitHub.
 
-The order of middleware in Express matters:
+### Full Config File Options
 
-```javascript
-// ✅ CORRECT — apisnap can bypass auth because it registers first
-app.use(express.json());
-apisnap.init(app);         // ← BEFORE auth middleware
-app.use(authMiddleware);   // ← AFTER apisnap.init
-
-// ❌ WRONG — auth blocks the discovery endpoint
-app.use(authMiddleware);   // ← BEFORE apisnap
-apisnap.init(app);         // discovery endpoint gets blocked!
-```
-
-If you **must** put auth before apisnap, manually whitelist the discovery path:
-
-```javascript
-app.use((req, res, next) => {
-  if (req.path === '/__apisnap_discovery') return next(); // bypass
-  return authMiddleware(req, res, next);
-});
+```json
+{
+  "port": "3000",
+  "slow": "300",
+  "timeout": "5000",
+  "retry": "1",
+  "headers": [
+    "Authorization: Bearer YOUR_TOKEN",
+    "x-api-key: YOUR_API_KEY"
+  ],
+  "cookie": "sessionId=your-session-id",
+  "params": {
+    "id": "1",
+    "userId": "1",
+    "slug": "hello-world",
+    "uuid": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
 ```
 
 ---
@@ -163,23 +324,23 @@ npx @umeshindu222/apisnap [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-p, --port <n>` | Port your server runs on | `3000` |
-| `-H, --header <str>` | Add auth header (repeatable) | — |
+| `-H, --header <str>` | Auth header — can repeat multiple times | — |
 | `-c, --cookie <str>` | Cookie string for session auth | — |
-| `-s, --slow <n>` | Slow threshold in ms | `200` |
+| `-s, --slow <n>` | Flag routes slower than this (ms) | `200` |
 | `-t, --timeout <n>` | Request timeout in ms | `5000` |
 | `-r, --retry <n>` | Retry failed requests N times | `0` |
-| `-e, --export <file>` | Export JSON report | — |
-| `--html <file>` | Export HTML report | — |
-| `--only <methods>` | Filter methods (e.g. `GET,POST`) | — |
-| `--base-url <url>` | Override base URL (for staging) | `localhost` |
-| `--params <json>` | Path param overrides as JSON | — |
+| `-e, --export <file>` | Save JSON report to file | — |
+| `--html <file>` | Save HTML report to file | — |
+| `--only <methods>` | Only test these methods e.g. `GET,POST` | — |
+| `--base-url <url>` | Test a different server e.g. staging | `localhost` |
+| `--params <json>` | Override path params as JSON | — |
 | `--fail-on-slow` | Exit code 1 if slow routes found | `false` |
 
 ---
 
 ## Examples
 
-### Basic
+### Basic check
 ```bash
 npx @umeshindu222/apisnap --port 3000
 ```
@@ -189,42 +350,58 @@ npx @umeshindu222/apisnap --port 3000
 npx @umeshindu222/apisnap -p 3000 -H "Authorization: Bearer eyJhbGci..."
 ```
 
-### Custom path params (for routes like `/users/:id/posts/:postId`)
+### Custom path params
+
+If your route is `/users/:id/posts/:postId` and the default `1` doesn't work in your database:
 ```bash
 npx @umeshindu222/apisnap --params '{"id":"42","postId":"7"}'
 ```
 
-### Test only GET routes
+### Only test GET routes
 ```bash
 npx @umeshindu222/apisnap --only GET
 ```
 
-### Test staging server
+### Test your staging server
 ```bash
 npx @umeshindu222/apisnap --base-url https://staging.myapp.com -H "Authorization: Bearer TOKEN"
 ```
 
-### Generate HTML report
+### Generate an HTML report
 ```bash
 npx @umeshindu222/apisnap --html report
+```
+
+Then open it:
+```bash
+# Windows
+start report.html
 
 # Mac
-# open report.html
-
-# Windows
-# start report.html
+open report.html
 
 # Linux
-# xdg-open report.html
+xdg-open report.html
 ```
 
-### CI/CD — fail pipeline on any broken endpoint
+### Generate a JSON report
 ```bash
-npx @umeshindu222/apisnap --export ci-report && echo "All healthy!"
-# Exit code 1 if any endpoint fails
+npx @umeshindu222/apisnap --export report
+# Creates: report.json
 ```
 
-### Full power
+### Retry flaky endpoints
+```bash
+npx @umeshindu222/apisnap --retry 3
+```
+
+### CI/CD — fail the pipeline if any endpoint is broken
+```bash
+npx @umeshindu222/apisnap --export ci-report
+# Exits with code 1 automatically if any endpoint fails
+```
+
+### All options together
 ```bash
 npx @umeshindu222/apisnap \
   -p 5000 \
@@ -234,8 +411,7 @@ npx @umeshindu222/apisnap \
   --slow 300 \
   --retry 2 \
   --html report \
-  --export report \
-  --fail-on-slow
+  --export report
 ```
 
 ---
@@ -243,42 +419,31 @@ npx @umeshindu222/apisnap \
 ## Sample Output
 
 ```
-📸 APISnap v2.0.0
+📸 APISnap v1.1.4
    Target:     http://localhost:3000
    Slow:       >200ms
    Timeout:    5000ms
-   Headers:    {"Authorization":"Bearer ••••••"}
+   Headers:    {"Authorization":"Bearer ey••••••"}
 
 ✔ Connected! Found 6 endpoints to test.
 
-  ✔ GET     /health                             [200] 3ms
+  ✔ GET     /health                             [200]  3ms
   ✔ GET     /users                              [200] 12ms
-  ✔ POST    /users                              [200] 8ms
-  ✔ GET     /users/1                            [200] 15ms
+  ✔ POST    /users                              [200]  8ms
+  ✔ GET     /users/1                            [200]  5ms
   ⚠️  GET     /reports                            [200] 543ms ← slow!
-  ✖ DELETE  /users/1                            [401]
+  ✖ DELETE  /users/1                            [401]  2ms
      💡 Hint: 401 Unauthorized — try adding -H "Authorization: Bearer YOUR_TOKEN"
 
 📊 Summary:
   ✅ Passed:  5
   ❌ Failed:  1
   ⚠️  Slow:    1 (>200ms)
-  ⏱  Avg:    100ms
-  🕐 Total:  600ms
+  ⏱  Avg:    95ms
+  🕐 Total:  573ms
 
 ⚠️  Some endpoints are unhealthy!
 ```
-
----
-
-## HTML Report
-
-`--html report` generates a beautiful standalone HTML file:
-
-- Pass rate progress bar
-- Color-coded result table
-- Per-endpoint timing, status, retry count
-- No external dependencies — works offline
 
 ---
 
@@ -287,36 +452,132 @@ npx @umeshindu222/apisnap \
 ```json
 {
   "tool": "APISnap",
-  "version": "2.0.0",
+  "version": "1.1.4",
   "generatedAt": "2026-03-08T10:00:00.000Z",
-  "config": { "port": "3000", "slowThreshold": 200 },
+  "config": {
+    "port": "3000",
+    "slowThreshold": 200,
+    "timeout": 5000
+  },
   "summary": {
-    "total": 6, "passed": 5, "failed": 1,
-    "slow": 1, "avgDuration": 100, "totalDuration": 600
+    "total": 6,
+    "passed": 5,
+    "failed": 1,
+    "slow": 1,
+    "avgDuration": 95,
+    "totalDuration": 573
   },
   "results": [
-    { "method": "GET", "path": "/users", "status": 200, "duration": 12, "success": true, "slow": false, "retries": 0 }
+    {
+      "method": "GET",
+      "path": "/users",
+      "status": 200,
+      "duration": 12,
+      "success": true,
+      "slow": false,
+      "retries": 0
+    }
   ]
 }
 ```
 
-> **CI/CD tip:** Check `summary.failed > 0` to fail your build.
+> **CI/CD tip:** Check `summary.failed > 0` to fail your build automatically.
+
+---
+
+## Common Problems & Fixes
+
+### "Cannot reach discovery endpoint"
+
+```
+✖ Cannot reach discovery endpoint: http://localhost:3000/__apisnap_discovery
+```
+
+**Causes:**
+- Your server is not running — start it first in another terminal
+- Wrong port — use `-p YOUR_PORT` to specify the correct one
+- You forgot to add `apisnap.init(app)` to your server
+
+---
+
+### All routes show 401
+
+**Cause:** Your routes are protected and no credentials were provided.
+
+**Fix:**
+```bash
+npx @umeshindu222/apisnap -H "Authorization: Bearer YOUR_REAL_TOKEN"
+```
+
+Also check your middleware order — `apisnap.init(app)` must come **before** any global `app.use(authMiddleware)`.
+
+---
+
+### Routes are missing from the output
+
+**Cause:** `apisnap.init(app)` was called before the routes were registered.
+
+**Fix:** Make sure `apisnap.init(app)` is the **last thing** before `app.listen()`:
+
+```javascript
+// All routes first
+app.use('/api/users', userRoutes);
+app.use('/api/posts', postRoutes);
+
+// APISnap last (before app.listen)
+apisnap.init(app);
+
+app.listen(3000);
+```
+
+---
+
+### Config file not loading
+
+**Cause:** On Windows, creating JSON files with PowerShell `echo` saves them with wrong encoding (UTF-16).
+
+**Fix:** Create `.apisnaprc.json` manually in VS Code or Notepad — File → Save As → select **UTF-8** encoding.
+
+---
+
+### 404 on routes with path params
+
+Routes like `/users/:id` get `:id` replaced with `1` by default. If `1` is not a valid ID in your database, override it:
+
+```bash
+npx @umeshindu222/apisnap --params '{"id":"YOUR_REAL_ID"}'
+```
+
+Or in your config file:
+```json
+{
+  "params": {
+    "id": "64f1a2b3c4d5e6f7a8b9c0d1"
+  }
+}
+```
 
 ---
 
 ## How It Works
 
-1. **Middleware** — `apisnap.init(app)` registers `/__apisnap_discovery` and patches `app.use` so global auth middleware skips the discovery path automatically.
+APISnap has two parts:
 
-2. **CLI** — Calls the discovery endpoint, gets the full route map, then pings each route with your headers/cookies. Smart defaults replace `:id` → `1`, `:uuid` → a valid UUID, `:slug` → `"example"`, etc.
+**1. Middleware** — `apisnap.init(app)` registers a hidden endpoint `/__apisnap_discovery` in your Express app. When called, it recursively walks the entire Express router stack and returns a map of every registered route — including all nested sub-routers.
 
-3. **Reports** — Results are collected and can be exported as JSON (for CI/CD) or a self-contained HTML file (for humans).
+**2. CLI** — `npx @umeshindu222/apisnap` calls the discovery endpoint, gets the full route list, then sends a real HTTP request to each route using your headers and cookies. It replaces path params with smart defaults (`:id` → `1`, `:uuid` → valid UUID, `:slug` → `"example"`), measures response time, and reports everything.
 
 ---
 
 ## Contributing
 
-1. Fork → `git checkout -b feat/amazing` → commit → push → PR
+Contributions, issues and feature requests are welcome!
+
+1. Fork the repo
+2. Create your branch: `git checkout -b feat/amazing-feature`
+3. Commit: `git commit -m 'feat: add amazing feature'`
+4. Push: `git push origin feat/amazing-feature`
+5. Open a Pull Request
 
 ---
 
