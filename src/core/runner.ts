@@ -208,7 +208,9 @@ program
             ? mergedOptions.only.split(',').map((m: string) => m.trim().toUpperCase())
             : null;
         const paramOverrides = mergedOptions.params
-            ? JSON.parse(mergedOptions.params)
+            ? (typeof mergedOptions.params === 'string'
+                ? JSON.parse(mergedOptions.params)  // from CLI flag — parse it
+                : mergedOptions.params)             // from config file — already an object
             : (fileConfig.params || {});
 
         const baseUrl = mergedOptions.baseUrl || mergedOptions['base-url'] || `http://localhost:${port}`;
