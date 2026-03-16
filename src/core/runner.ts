@@ -95,6 +95,28 @@ function replacePath(rawPath: string, paramMap: Record<string, string> = {}): st
     });
 }
 
+// ─── Concurrency Limiter ──────────────────────────────────────────────────────
+
+async function runWithConcurrency<T>(
+    tasks: (() => Promise<T>)[],
+    limit: number
+): Promise<T[]> {
+    const results: T[] = [];
+    let index = 0;
+
+    async function worker() {
+        while (index < tasks.length) {
+            const i = index++;
+            results[i] = await tasks[i]();
+        }
+    }
+
+    // Spin up `limit` workers — each pulls the next task when free
+    const workers = Array.from({ length: Math.min(limit, tasks.length) }, worker);
+    await Promise.all(workers);
+    return results;
+}
+
 // ─── HTML Report Generator ────────────────────────────────────────────────────
 
 function generateHTMLReport(data: ReportData): string {
@@ -195,6 +217,8 @@ program
     .option('--base-url <url>', 'Override base URL (e.g. https://staging.myapp.com)')
     .option('--params <json>', 'JSON map of param overrides (e.g. \'{"id":"42"}\')')
     .option('--fail-on-slow', 'Exit with code 1 if any slow routes are found')
+    .option('--concurrency <number>', 'How many requests to run in parallel (default: 1)')
+    .option('--body <json>', 'Default JSON body for POST/PUT/PATCH requests (e.g. \'{"name":"test"}\')')
     .action(async (options) => {
         // Merge config file with CLI options (CLI takes precedence)
         const fileConfig = loadConfigFile();
@@ -212,6 +236,13 @@ program
                 ? JSON.parse(mergedOptions.params)  // from CLI flag — parse it
                 : mergedOptions.params)             // from config file — already an object
             : (fileConfig.params || {});
+
+        const concurrency = parseInt(mergedOptions.concurrency || '1');
+        const defaultBody = mergedOptions.body
+            ? (typeof mergedOptions.body === 'string'
+                ? JSON.parse(mergedOptions.body)
+                : mergedOptions.body)
+            : (fileConfig.body || null);
 
         const baseUrl = mergedOptions.baseUrl || mergedOptions['base-url'] || `http://localhost:${port}`;
         const discoveryUrl = `http://localhost:${port}/__apisnap_discovery`;
@@ -236,6 +267,8 @@ program
         console.log(chalk.gray(`   Slow:       >${slowThreshold}ms`));
         console.log(chalk.gray(`   Timeout:    ${timeout}ms`));
         if (retryCount > 0) console.log(chalk.gray(`   Retries:    ${retryCount}`));
+        if (concurrency > 1) console.log(chalk.gray(`   Concurrency: ${concurrency}`));
+        if (defaultBody)     console.log(chalk.gray(`   Body:        ${JSON.stringify(defaultBody)}`));
         if (Object.keys(customHeaders).filter(k => k !== 'User-Agent').length > 0) {
             const safeHeaders = { ...customHeaders };
             // Mask auth tokens in output
@@ -271,11 +304,18 @@ program
             const allDurations: number[] = [];
 
             // ── Test Each Endpoint ───────────────────────────────────────────────
-            for (const endpoint of endpoints) {
-                const method = endpoint.methods[0]; // primary method
+            // ── Build task list ───────────────────────────────────────────────────────
+            const tasks = endpoints.map((endpoint: any) => async (): Promise<TestResult> => {
+                const method = endpoint.methods[0];
                 const rawPath = endpoint.path;
                 const resolvedPath = replacePath(rawPath, paramOverrides);
                 const fullUrl = `${baseUrl}${resolvedPath}`;
+
+                // Per-route body: check fileConfig.routes first, fall back to defaultBody
+                const routeConfig = (fileConfig.routes || []).find(
+                    (r: any) => r.path === rawPath || r.path === resolvedPath
+                );
+                const requestBody = routeConfig?.body ?? defaultBody;
 
                 const testResult: TestResult = {
                     method, path: rawPath, fullUrl,
@@ -283,7 +323,10 @@ program
                     success: false, slow: false, retries: 0,
                 };
 
-                const testSpinner = ora({ text: `${chalk.bold(method.padEnd(7))} ${chalk.dim(rawPath)}`, prefixText: '  ' }).start();
+                const testSpinner = ora({
+                    text: `${chalk.bold(method.padEnd(7))} ${chalk.dim(rawPath)}`,
+                    prefixText: '  '
+                }).start();
 
                 let lastError: any = null;
                 let attempt = 0;
@@ -296,7 +339,9 @@ program
                             url: fullUrl,
                             headers: customHeaders,
                             timeout,
-                            validateStatus: () => true, // Don't throw on 4xx/5xx — we judge ourselves
+                            validateStatus: () => true,
+                            // Only send body for methods that accept one
+                            data: ['POST', 'PUT', 'PATCH'].includes(method) ? requestBody : undefined,
                         });
                         const duration = Date.now() - start;
 
@@ -313,16 +358,9 @@ program
                             const durationStr = testResult.slow
                                 ? chalk.yellow.bold(`${duration}ms ← slow!`)
                                 : chalk.gray(`${duration}ms`);
-
                             const msg = `${chalk.bold(method.padEnd(7))} ${chalk.white(rawPath.padEnd(35))} ` +
                                 `${chalk.green(`[${res.status}]`)} ${durationStr}`;
-
-                            if (testResult.slow) {
-                                testSpinner.warn(msg);
-                            } else {
-                                testSpinner.succeed(msg);
-                            }
-
+                            testResult.slow ? testSpinner.warn(msg) : testSpinner.succeed(msg);
                             passed++;
                             if (testResult.slow) slow++;
                         } else {
@@ -330,24 +368,18 @@ program
                                 `${chalk.bold(method.padEnd(7))} ${chalk.white(rawPath.padEnd(35))} ` +
                                 `${chalk.red(`[${res.status} ${res.statusText}]`)} ${chalk.gray(`${duration}ms`)}`
                             );
-                            // Helpful hint for auth errors
-                            if (res.status === 401) {
-                                console.log(chalk.yellow(`     💡 Hint: 401 Unauthorized — try adding -H "Authorization: Bearer YOUR_TOKEN" or --cookie "sessionId=abc"`));
-                            } else if (res.status === 403) {
-                                console.log(chalk.yellow(`     💡 Hint: 403 Forbidden — your token may lack permission for this route`));
-                            } else if (res.status === 404) {
-                                console.log(chalk.yellow(`     💡 Hint: 404 Not Found — path param replacement may need --params '{"id":"YOUR_ID"}'`));
-                            }
+                            if (res.status === 401) console.log(chalk.yellow(`     💡 Hint: 401 — try -H "Authorization: Bearer TOKEN"`));
+                            else if (res.status === 403) console.log(chalk.yellow(`     💡 Hint: 403 — token may lack permission`));
+                            else if (res.status === 404) console.log(chalk.yellow(`     💡 Hint: 404 — try --params '{"id":"YOUR_ID"}'`));
+                            else if (res.status === 400 || res.status === 422) console.log(chalk.yellow(`     💡 Hint: ${res.status} — try --body '{"field":"value"}' or add a routes[].body in .apisnaprc`));
                             failed++;
                         }
                         lastError = null;
-                        break; // success, stop retrying
+                        break;
                     } catch (err: any) {
                         lastError = err;
                         attempt++;
-                        if (attempt <= retryCount) {
-                            await new Promise(r => setTimeout(r, 500 * attempt)); // backoff
-                        }
+                        if (attempt <= retryCount) await new Promise(r => setTimeout(r, 500 * attempt));
                     }
                 }
 
@@ -362,8 +394,12 @@ program
                     failed++;
                 }
 
-                results.push(testResult);
-            }
+                return testResult;
+            });
+
+            // ── Run with concurrency limit ────────────────────────────────────────────
+            const allResults = await runWithConcurrency<TestResult>(tasks, concurrency);
+            results.push(...allResults);
 
             // ── Summary ──────────────────────────────────────────────────────────
             const avgDuration = allDurations.length > 0
