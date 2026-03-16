@@ -299,6 +299,11 @@ APISnap reads the config file automatically.
   "slow": "300",
   "timeout": "5000",
   "retry": "1",
+  "concurrency": 5,
+  "body": {
+    "name": "test",
+    "email": "test@example.com"
+  },
   "headers": [
     "Authorization: Bearer YOUR_TOKEN",
     "x-api-key: YOUR_API_KEY"
@@ -309,7 +314,17 @@ APISnap reads the config file automatically.
     "userId": "1",
     "slug": "hello-world",
     "uuid": "550e8400-e29b-41d4-a716-446655440000"
-  }
+  },
+  "routes": [
+    {
+      "path": "/api/users",
+      "body": { "name": "John", "email": "john@example.com" }
+    },
+    {
+      "path": "/api/products",
+      "body": { "title": "Widget", "price": 9.99 }
+    }
+  ]
 }
 ```
 
@@ -335,6 +350,8 @@ npx @umeshindu222/apisnap [options]
 | `--base-url <url>` | Test a different server e.g. staging | `localhost` |
 | `--params <json>` | Override path params as JSON | — |
 | `--fail-on-slow` | Exit code 1 if slow routes found | `false` |
+| `--concurrency <n>` | Concurrent requests to run | `1` |
+| `--body <json>` | Default JSON body for POST/PUT/PATCH | — |
 
 ---
 
