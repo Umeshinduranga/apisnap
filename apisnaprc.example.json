@@ -3,6 +3,11 @@
     "slow": "300",
     "timeout": "5000",
     "retry": "1",
+    "concurrency": 5,
+    "body": {
+        "name": "test",
+        "email": "test@example.com"
+    },
     "headers": [
         "Authorization: Bearer YOUR_DEV_JWT_TOKEN_HERE",
         "x-api-key: YOUR_API_KEY_HERE"
@@ -14,5 +19,15 @@
         "postId": "1",
         "slug": "example-post",
         "uuid": "550e8400-e29b-41d4-a716-446655440000"
-    }
+    },
+    "routes": [
+        {
+            "path": "/api/users",
+            "body": { "name": "John", "email": "john@example.com" }
+        },
+        {
+            "path": "/api/products",
+            "body": { "title": "Widget", "price": 9.99 }
+        }
+    ]
 }
