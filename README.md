@@ -1,5 +1,26 @@
 # 📸 APISnap
 
+## Quick start
+
+```bash
+npm install -g @umeshindu222/apisnap
+cd your-project
+apisnap init        # ← guided setup, takes 30 seconds
+apisnap             # ← run your first health check
+```
+
+That's it. APISnap discovers all your Express routes automatically.
+
+## Add to your server (one line)
+
+```js
+const apisnap = require('@umeshindu222/apisnap');
+
+// ... your routes ...
+
+apisnap.init(app);  // ← must be AFTER your routes
+```
+
 > Instant API auto-discovery and health-check CLI for Express.js
 
 [![npm version](https://img.shields.io/npm/v/@umeshindu222/apisnap.svg)](https://www.npmjs.com/package/@umeshindu222/apisnap)
@@ -31,7 +52,7 @@ One command. Every route. Instant results.
 
 ---
 
-## Quick Start
+## Detailed Setup
 
 ### Step 1 — Install
 
