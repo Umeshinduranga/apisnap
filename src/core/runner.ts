@@ -39,9 +39,15 @@ interface ReportData {
     results: TestResult[];
 }
 
+interface ConfigError {
+    field: string;
+    message: string;
+    fix: string;
+}
+
 // ─── Config File Loader ───────────────────────────────────────────────────────
 
-function loadConfigFile(): Record<string, any> {
+function loadConfigFile(env?: string): Record<string, any> {
     const configNames = ['.apisnaprc', '.apisnaprc.json', 'apisnap.config.json'];
     for (const name of configNames) {
         const filePath = path.resolve(process.cwd(), name);
@@ -51,14 +57,50 @@ function loadConfigFile(): Record<string, any> {
                 let raw = fs.readFileSync(filePath, 'utf-8');
                 raw = raw.replace(/^\uFEFF/, '');
                 raw = raw.trim();
-                console.log(chalk.gray(`   Config: ${name}\n`));
-                return JSON.parse(raw);
+                const config = JSON.parse(raw);
+                console.log(chalk.gray(`   Config: ${name}${env ? ` (env: ${env})` : ''}\n`));
+
+                if (env && config.envs?.[env]) {
+                    return { ...config, ...config.envs[env] };
+                }
+
+                return config;
             } catch (e) {
                 console.warn(chalk.yellow(`⚠️  Could not parse config file: ${name}`));
             }
         }
     }
     return {};
+}
+
+function validateConfig(config: Record<string, any>): ConfigError[] {
+    const errors: ConfigError[] = [];
+
+    if (config.port && isNaN(parseInt(config.port))) {
+        errors.push({ field: 'port', message: '"port" must be a number', fix: '"port": "3000"' });
+    }
+
+    if (config.slow && isNaN(parseInt(config.slow))) {
+        errors.push({ field: 'slow', message: '"slow" must be a number', fix: '"slow": 200' });
+    }
+
+    if (config.concurrency && parseInt(config.concurrency) < 1) {
+        errors.push({ field: 'concurrency', message: '"concurrency" must be ≥ 1', fix: '"concurrency": 3' });
+    }
+
+    if (config.headers && !Array.isArray(config.headers)) {
+        errors.push({ field: 'headers', message: '"headers" must be an array', fix: '"headers": ["Authorization: Bearer TOKEN"]' });
+    }
+
+    if (config.params && (typeof config.params !== 'object' || Array.isArray(config.params) || config.params === null)) {
+        errors.push({ field: 'params', message: '"params" must be an object', fix: '"params": {"id": "1"}' });
+    }
+
+    if (config.envs && (typeof config.envs !== 'object' || Array.isArray(config.envs) || config.envs === null)) {
+        errors.push({ field: 'envs', message: '"envs" must be an object', fix: '"envs": {"staging": {"baseUrl": "https://staging.example.com"}}' });
+    }
+
+    return errors;
 }
 
 // ─── Header Parser ─────────────────────────────────────────────────────────
@@ -202,6 +244,58 @@ function generateHTMLReport(data: ReportData): string {
 // ─── Main CLI ─────────────────────────────────────────────────────────────────
 
 program
+    .command('init')
+    .description('Set up APISnap interactively')
+    .action(async () => {
+        const { createInterface } = await import('readline');
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const q = (prompt: string) => new Promise<string>(resolve => rl.question(prompt, resolve));
+
+        console.log(chalk.bold.cyan('\n📸 APISnap — project setup\n'));
+        console.log(chalk.gray('  This creates a .apisnaprc.json in your project root.\n'));
+
+        const port = (await q(chalk.white('  Server port? ') + chalk.gray('[3000]: '))).trim() || '3000';
+        const slowInput = (await q(chalk.white('  Slow threshold (ms)? ') + chalk.gray('[200]: '))).trim() || '200';
+        const authRaw = await q(chalk.white('  Auth token? ') + chalk.gray('(leave blank to skip): '));
+        const skipRaw = await q(chalk.white('  Paths to skip? ') + chalk.gray('e.g. /admin,/internal (or blank): '));
+
+        const configPath = path.resolve(process.cwd(), '.apisnaprc.json');
+        const alreadyExists = fs.existsSync(configPath);
+
+        if (alreadyExists) {
+            const overwrite = (await q(chalk.yellow('\n  .apisnaprc.json already exists. Overwrite? [y/N]: '))).trim().toLowerCase();
+            if (overwrite !== 'y') {
+                rl.close();
+                console.log(chalk.gray('\n  Cancelled. No changes made.\n'));
+                return;
+            }
+        }
+
+        rl.close();
+
+        const parsedSlow = parseInt(slowInput, 10);
+        const config: Record<string, any> = {
+            port,
+            slow: Number.isNaN(parsedSlow) ? 200 : parsedSlow,
+        };
+
+        if (authRaw.trim()) {
+            config.headers = [`Authorization: Bearer ${authRaw.trim()}`];
+        }
+
+        if (skipRaw.trim()) {
+            config.skip = skipRaw.split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+        console.log(chalk.green('\n  ✅ Created .apisnaprc.json\n'));
+        console.log(chalk.gray('  Next steps:'));
+        console.log(chalk.cyan('    1. Start your server'));
+        console.log(chalk.cyan('    2. Run: apisnap\n'));
+    });
+
+program
     .name('apisnap')
     .description('Instant API health-check CLI for Express.js')
     .version(version)
@@ -214,6 +308,7 @@ program
     .option('-e, --export <filename>', 'Export JSON report (e.g. report)')
     .option('--html <filename>', 'Export HTML report (e.g. report)')
     .option('--only <methods>', 'Only test specific methods (e.g. "GET,POST")')
+    .option('--env <name>', 'Use environment profile from config (e.g. staging, prod)')
     .option('--base-url <url>', 'Override base URL (e.g. https://staging.myapp.com)')
     .option('--params <json>', 'JSON map of param overrides (e.g. \'{"id":"42"}\')')
     .option('--fail-on-slow', 'Exit with code 1 if any slow routes are found')
@@ -221,7 +316,18 @@ program
     .option('--body <json>', 'Default JSON body for POST/PUT/PATCH requests (e.g. \'{"name":"test"}\')')
     .action(async (options) => {
         // Merge config file with CLI options (CLI takes precedence)
-        const fileConfig = loadConfigFile();
+        const fileConfig = loadConfigFile(options.env);
+        const configErrors = validateConfig(fileConfig);
+
+        if (configErrors.length > 0) {
+            console.log(chalk.red.bold('\n  Config errors in .apisnaprc.json:\n'));
+            configErrors.forEach(e => {
+                console.log(chalk.red(`  ✖  ${e.message}`));
+                console.log(chalk.gray(`     Fix: ${e.fix}\n`));
+            });
+            process.exit(1);
+        }
+
         const mergedOptions = { ...fileConfig, ...options };
 
         const port = mergedOptions.port || '3000';
@@ -368,10 +474,25 @@ program
                                 `${chalk.bold(method.padEnd(7))} ${chalk.white(rawPath.padEnd(35))} ` +
                                 `${chalk.red(`[${res.status} ${res.statusText}]`)} ${chalk.gray(`${duration}ms`)}`
                             );
-                            if (res.status === 401) console.log(chalk.yellow(`     💡 Hint: 401 — try -H "Authorization: Bearer TOKEN"`));
-                            else if (res.status === 403) console.log(chalk.yellow(`     💡 Hint: 403 — token may lack permission`));
-                            else if (res.status === 404) console.log(chalk.yellow(`     💡 Hint: 404 — try --params '{"id":"YOUR_ID"}'`));
-                            else if (res.status === 400 || res.status === 422) console.log(chalk.yellow(`     💡 Hint: ${res.status} — try --body '{"field":"value"}' or add a routes[].body in .apisnaprc`));
+
+                            const paramNames = [...rawPath.matchAll(/:([a-zA-Z0-9_]+)/g)].map(match => match[1]);
+                            const exampleParams = paramNames.reduce((acc, paramName) => ({ ...acc, [paramName]: '1' }), {});
+
+                            if (res.status === 401 || res.status === 403) {
+                                const hint = res.status === 401
+                                    ? 'No credentials sent — add to .apisnaprc: "headers": ["Authorization: Bearer TOKEN"]'
+                                    : 'Token lacks permission for this route';
+                                console.log(chalk.yellow(`     hint: ${hint}`));
+                            } else if (res.status === 404 && paramNames.length > 0) {
+                                console.log(chalk.yellow('     hint: path needs params — add to .apisnaprc:'));
+                                console.log(chalk.gray(`       "params": ${JSON.stringify(exampleParams)}`));
+                            } else if (res.status === 404) {
+                                console.log(chalk.yellow('     hint: route not found — is the server fully started?'));
+                            } else if (res.status === 400 || res.status === 422) {
+                                console.log(chalk.yellow('     hint: add a request body to .apisnaprc under "routes":'));
+                                console.log(chalk.gray(`       { "path": "${rawPath}", "body": {"field": "value"} }`));
+                            }
+
                             failed++;
                         }
                         lastError = null;
@@ -463,12 +584,30 @@ program
             process.exit(shouldFail ? 1 : 0);
 
         } catch (error: any) {
-            spinner.fail(chalk.red(`Cannot reach discovery endpoint: ${discoveryUrl}`));
-            console.log(chalk.yellow('\n  Checklist:'));
-            console.log(chalk.gray('  1. Is your server running? (e.g. node server.js)'));
-            console.log(chalk.gray('  2. Did you call apisnap.init(app) in your server?'));
-            console.log(chalk.gray('  3. Is the port correct? (default 3000, use -p PORT)'));
-            console.log(chalk.gray('  4. Is apisnap.init(app) placed AFTER your routes?\n'));
+            spinner.fail(chalk.red('Could not connect to your server.'));
+
+            const isRefused = error?.code === 'ECONNREFUSED';
+            const isTimeout = error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT';
+            const isNoInit = error?.response?.status === 404;
+
+            if (isRefused) {
+                console.log(chalk.yellow(`\n  Your server is not running on port ${port}.`));
+                console.log(chalk.gray('  → Start it first, then run apisnap again.\n'));
+            } else if (isTimeout) {
+                console.log(chalk.yellow('\n  Connection timed out.'));
+                console.log(chalk.gray('  → Is the port right? Try: apisnap -p YOUR_PORT\n'));
+            } else if (isNoInit) {
+                console.log(chalk.yellow('\n  Server is running but APISnap middleware not found.'));
+                console.log(chalk.gray('  → Add this to your server AFTER your routes:\n'));
+                console.log(chalk.cyan('      const apisnap = require(\'@umeshindu222/apisnap\');'));
+                console.log(chalk.cyan('      apisnap.init(app);\n'));
+            } else {
+                console.log(chalk.gray('\n  Checklist:'));
+                console.log(chalk.gray('  1. Server running?  →  node server.js'));
+                console.log(chalk.gray('  2. Middleware added? →  apisnap.init(app) after your routes'));
+                console.log(chalk.gray('  3. Port correct?    →  apisnap -p YOUR_PORT\n'));
+            }
+
             process.exit(1);
         }
     });
