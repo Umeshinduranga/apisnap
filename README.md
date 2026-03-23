@@ -41,29 +41,29 @@ One command. Every route. Instant results.
 
 ## Features
 
--  **Auto Route Discovery** — finds every route including nested sub-routers
--  **Full Auth Support** — JWT, API Keys, Cookies, multiple headers at once
--  **Auth Hints** — tells you exactly how to fix 401/403 errors
--  **Slow Route Detection** — flags endpoints that are too slow
--  **Retry Logic** — auto-retries failed requests
--  **HTML Reports** — beautiful visual reports you can share
--  **JSON Export** — structured output for CI/CD pipelines
--  **Config File** — save your settings so you don't retype every time
--  **Method Filter** — test only GET, POST, DELETE etc.
--  **Smart Path Params** — auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
--  **Express v4 & v5** — works with both versions
+-  **Auto Route Discovery** - finds every route including nested sub-routers
+-  **Full Auth Support** - JWT, API Keys, Cookies, multiple headers at once
+-  **Auth Hints** - tells you exactly how to fix 401/403 errors
+-  **Slow Route Detection** - flags endpoints that are too slow
+-  **Retry Logic** - auto-retries failed requests
+-  **HTML Reports** - beautiful visual reports you can share
+-  **JSON Export** - structured output for CI/CD pipelines
+-  **Config File** - save your settings so you don't retype every time
+-  **Method Filter** - test only GET, POST, DELETE etc.
+-  **Smart Path Params** - auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
+-  **Express v4 & v5** - works with both versions
 
 ---
 
 ## Detailed Setup
 
-### Step 1 — Install
+### Step 1 - Install
 
 ```bash
 npm install @umeshindu222/apisnap
 ```
 
-### Step 2 — Add to your server file
+### Step 2 - Add to your server file
 
 Open your main server file (`server.js`, `app.js`, `app.ts`) and add **2 lines**:
 
@@ -75,7 +75,7 @@ const apisnap = require('@umeshindu222/apisnap'); // ADD THIS at the top
 apisnap.init(app); // ADD THIS — after your routes
 ```
 
-### Step 3 — Start your server
+### Step 3 - Start your server
 
 ```bash
 node server.js
@@ -127,7 +127,7 @@ app.listen(3000, () => console.log('Server running on port 3000'));
 
 ### TypeScript
 
-> ⚠️ **TypeScript users — import must be written exactly like this:**
+>  **TypeScript users — import must be written exactly like this:**
 
 ```typescript
 // ✅ CORRECT — use import * as
@@ -204,7 +204,7 @@ app.listen(3000);
 
 ### With Global Auth Middleware
 
-> ⚠️ **Important:** If you use global auth middleware (`app.use(authMiddleware)`), you must place `apisnap.init(app)` **before** it. Otherwise auth will block the discovery endpoint.
+>  **Important:** If you use global auth middleware (`app.use(authMiddleware)`), you must place `apisnap.init(app)` **before** it. Otherwise auth will block the discovery endpoint.
 
 ```javascript
 const express = require('express');
@@ -241,7 +241,7 @@ apisnap.init(app, {
 
 ---
 
-## 🔐 Fixing 401 / 403 Errors
+##  Fixing 401 / 403 Errors
 
 401 and 403 errors are **completely normal** — it just means your routes are protected and APISnap needs credentials, exactly like any real client would.
 
