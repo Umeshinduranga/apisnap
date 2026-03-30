@@ -76,15 +76,15 @@ function loadConfigFile(env?: string): Record<string, any> {
 function validateConfig(config: Record<string, any>): ConfigError[] {
     const errors: ConfigError[] = [];
 
-    if (config.port && isNaN(parseInt(config.port))) {
-        errors.push({ field: 'port', message: '"port" must be a number', fix: '"port": "3000"' });
+    if (config.port !== undefined && !Number.isInteger(Number(config.port))) {
+        errors.push({ field: 'port', message: '"port" must be a whole number', fix: '"port": 3000' });
     }
 
-    if (config.slow && isNaN(parseInt(config.slow))) {
-        errors.push({ field: 'slow', message: '"slow" must be a number', fix: '"slow": 200' });
+    if (config.slow !== undefined && !Number.isInteger(Number(config.slow))) {
+        errors.push({ field: 'slow', message: '"slow" must be a whole number', fix: '"slow": 200' });
     }
 
-    if (config.concurrency && parseInt(config.concurrency) < 1) {
+    if (config.concurrency !== undefined && Number(config.concurrency) < 1) {
         errors.push({ field: 'concurrency', message: '"concurrency" must be ≥ 1', fix: '"concurrency": 3' });
     }
 
@@ -101,6 +101,37 @@ function validateConfig(config: Record<string, any>): ConfigError[] {
     }
 
     return errors;
+}
+
+function parseIntOption(
+    value: string | number | undefined,
+    name: string,
+    defaultValue: number,
+    options: { min?: number; max?: number } = {}
+): number {
+    if (value === undefined || value === null || value === '') {
+        return defaultValue;
+    }
+
+    const numericValue = typeof value === 'number' ? value : Number(String(value));
+
+    if (!Number.isFinite(numericValue) || !Number.isInteger(numericValue)) {
+        console.error(chalk.red(`\n  ✖  Invalid value for --${name}: "${value}" must be a whole number.`));
+        console.error(chalk.gray(`     Example: --${name} ${defaultValue}\n`));
+        process.exit(1);
+    }
+
+    if (options.min !== undefined && numericValue < options.min) {
+        console.error(chalk.red(`\n  ✖  Invalid value for --${name}: ${numericValue} is below minimum (${options.min}).\n`));
+        process.exit(1);
+    }
+
+    if (options.max !== undefined && numericValue > options.max) {
+        console.error(chalk.red(`\n  ✖  Invalid value for --${name}: ${numericValue} exceeds maximum (${options.max}).\n`));
+        process.exit(1);
+    }
+
+    return numericValue;
 }
 
 // ─── Header Parser ─────────────────────────────────────────────────────────
@@ -142,14 +173,21 @@ function replacePath(rawPath: string, paramMap: Record<string, string> = {}): st
 async function runWithConcurrency<T>(
     tasks: (() => Promise<T>)[],
     limit: number
-): Promise<T[]> {
-    const results: T[] = [];
+): Promise<(T | Error)[]> {
+    const results: (T | Error)[] = Array.from(
+        { length: tasks.length },
+        () => new Error('Task never executed')
+    );
     let index = 0;
 
     async function worker() {
         while (index < tasks.length) {
             const i = index++;
-            results[i] = await tasks[i]();
+            try {
+                results[i] = await tasks[i]();
+            } catch (err) {
+                results[i] = err instanceof Error ? err : new Error(String(err));
+            }
         }
     }
 
@@ -331,9 +369,9 @@ program
         const mergedOptions = { ...fileConfig, ...options };
 
         const port = mergedOptions.port || '3000';
-        const slowThreshold = parseInt(mergedOptions.slow || '200');
-        const timeout = parseInt(mergedOptions.timeout || '5000');
-        const retryCount = parseInt(mergedOptions.retry || '0');
+        const slowThreshold = parseIntOption(mergedOptions.slow, 'slow', 200, { min: 1 });
+        const timeout = parseIntOption(mergedOptions.timeout, 'timeout', 5000, { min: 100 });
+        const retryCount = parseIntOption(mergedOptions.retry, 'retry', 0, { min: 0, max: 10 });
         const onlyMethods = mergedOptions.only
             ? mergedOptions.only.split(',').map((m: string) => m.trim().toUpperCase())
             : null;
@@ -343,7 +381,7 @@ program
                 : mergedOptions.params)             // from config file — already an object
             : (fileConfig.params || {});
 
-        const concurrency = parseInt(mergedOptions.concurrency || '1');
+        const concurrency = parseIntOption(mergedOptions.concurrency, 'concurrency', 1, { min: 1, max: 50 });
         const defaultBody = mergedOptions.body
             ? (typeof mergedOptions.body === 'string'
                 ? JSON.parse(mergedOptions.body)
@@ -520,7 +558,33 @@ program
 
             // ── Run with concurrency limit ────────────────────────────────────────────
             const allResults = await runWithConcurrency<TestResult>(tasks, concurrency);
-            results.push(...allResults);
+            for (let i = 0; i < allResults.length; i++) {
+                const result = allResults[i];
+                if (result instanceof Error) {
+                    const endpoint = endpoints[i];
+                    const method = endpoint?.methods?.[0] || 'UNKNOWN';
+                    const rawPath = endpoint?.path || '(unknown route)';
+                    const resolvedPath = replacePath(rawPath, paramOverrides);
+                    const fullUrl = `${baseUrl}${resolvedPath}`;
+
+                    console.error(chalk.red(`  Internal error on task ${i}: ${result.message}`));
+                    results.push({
+                        method,
+                        path: rawPath,
+                        fullUrl,
+                        status: 0,
+                        statusText: 'Internal Error',
+                        duration: 0,
+                        success: false,
+                        slow: false,
+                        error: `Internal task failure: ${result.message}`,
+                        retries: 0,
+                    });
+                    failed++;
+                } else {
+                    results.push(result);
+                }
+            }
 
             // ── Summary ──────────────────────────────────────────────────────────
             const avgDuration = allDurations.length > 0
