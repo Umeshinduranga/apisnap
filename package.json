@@ -1,6 +1,6 @@
 {
   "name": "@umeshindu222/apisnap",
-  "version": "1.3.0",
+  "version": "1.2.2",
   "description": "Instant API auto-discovery and health-check CLI for Express.js with auth flows, baseline diffing, and CI integration",
   "main": "dist/middleware/index.js",
   "types": "dist/middleware/index.d.ts",
