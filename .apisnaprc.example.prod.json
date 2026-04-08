@@ -1,0 +1,103 @@
+{
+  "port": 3000,
+  "slow": 200,
+  "timeout": 5000,
+  "concurrency": 3,
+
+  "headers": [
+    "x-tenant: acme",
+    "x-api-version: v1"
+  ],
+
+  "authFlow": {
+    "url": "/auth/login",
+    "body": {
+      "username": "test.user@example.com",
+      "password": "secure-password-here"
+    },
+    "tokenPath": "data.accessToken",
+    "headerName": "Authorization",
+    "prefix": "Bearer "
+  },
+
+  "params": {
+    "id": "12345",
+    "slug": "example-post",
+    "uuid": "550e8400-e29b-41d4-a716-446655440000"
+  },
+
+  "skip": [
+    "/admin",
+    "/internal",
+    "/_health",
+    "/metrics"
+  ],
+
+  "routes": [
+    {
+      "path": "/health",
+      "auth": "none"
+    },
+    {
+      "path": "/public/docs",
+      "auth": "none"
+    },
+    {
+      "path": "/users",
+      "body": {
+        "firstName": "John",
+        "lastName": "Doe",
+        "email": "john@example.com"
+      }
+    },
+    {
+      "path": "/posts/:id",
+      "body": {
+        "title": "Updated Title",
+        "content": "New content here"
+      }
+    },
+    {
+      "path": "/upload/:id",
+      "headers": [
+        "Content-Type: multipart/form-data"
+      ]
+    }
+  ],
+
+  "envs": {
+    "staging": {
+      "baseUrl": "https://staging.api.example.com",
+      "authFlow": {
+        "url": "https://staging.auth.example.com/oauth/token",
+        "body": {
+          "username": "staging-bot@example.com",
+          "password": "staging-password"
+        },
+        "tokenPath": "access_token",
+        "headerName": "Authorization",
+        "prefix": "Bearer "
+      },
+      "timeout": 10000,
+      "concurrency": 5
+    },
+
+    "prod": {
+      "baseUrl": "https://api.example.com",
+      "authFlow": {
+        "url": "https://auth.example.com/oauth/token",
+        "body": {
+          "client_id": "prod-client-id",
+          "client_secret": "prod-client-secret",
+          "grant_type": "client_credentials"
+        },
+        "tokenPath": "access_token",
+        "headerName": "Authorization",
+        "prefix": "Bearer "
+      },
+      "timeout": 15000,
+      "concurrency": 1,
+      "slow": 500
+    }
+  }
+}
