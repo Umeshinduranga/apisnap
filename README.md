@@ -25,6 +25,7 @@ apisnap.init(app);  // ← must be AFTER your routes
 
 [![npm version](https://img.shields.io/npm/v/@umeshindu222/apisnap.svg)](https://www.npmjs.com/package/@umeshindu222/apisnap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Socket Badge](https://badge.socket.dev/npm/package/@umeshindu222/apisnap/1.2.1)](https://socket.dev/npm/package/%40umeshindu222%2Fapisnap)
 
 ---
 
