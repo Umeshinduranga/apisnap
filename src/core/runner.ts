@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import axios, { AxiosError } from 'axios';
 import chalk from 'chalk';
@@ -36,6 +36,9 @@ interface ReportData {
         slow: number;
         avgDuration: number;
         totalDuration: number;
+        p50Duration: number;
+        p95Duration: number;
+        p99Duration: number;
     };
     results: TestResult[];
 }
@@ -73,6 +76,89 @@ interface RouteConfig {
     headers?: string[];
     /** Override auth for this specific route */
     auth?: 'none' | string;
+    /** Override timeout for this specific route */
+    timeout?: number;
+}
+
+function interpolateEnv(value: any): any {
+    if (typeof value === 'string') {
+        return value.replace(/\$([A-Z_][A-Z0-9_]*)/g, (match, key: string) => process.env[key] ?? match);
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => interpolateEnv(item));
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, interpolateEnv(v)]));
+    }
+    return value;
+}
+
+function globToRegExp(pattern: string): RegExp {
+    const escaped = pattern
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.');
+    return new RegExp(`^${escaped}$`);
+}
+
+function pathMatchesFilter(pathname: string, pattern: string): boolean {
+    if (pattern.includes('*') || pattern.includes('?')) {
+        return globToRegExp(pattern).test(pathname);
+    }
+    return pathname.includes(pattern);
+}
+
+function percentile(sorted: number[], p: number): number {
+    if (sorted.length === 0) return 0;
+    const index = Math.ceil((p / 100) * sorted.length) - 1;
+    return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+}
+
+function parseRetryAfterMs(retryAfterHeader: string | string[] | undefined): number {
+    const raw = Array.isArray(retryAfterHeader) ? retryAfterHeader[0] : retryAfterHeader;
+    if (!raw) return 2000;
+
+    const asSeconds = Number.parseInt(raw, 10);
+    if (Number.isFinite(asSeconds)) {
+        return Math.max(0, asSeconds * 1000);
+    }
+
+    const dateMs = Date.parse(raw);
+    if (Number.isFinite(dateMs)) {
+        return Math.max(0, dateMs - Date.now());
+    }
+
+    return 2000;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeOpenApiPath(p: string): string {
+    return p.replace(/\{([^}]+)\}/g, ':$1');
+}
+
+function parseOpenApiEndpoints(spec: any): Array<{ path: string; methods: string[] }> {
+    if (!spec || typeof spec !== 'object' || typeof spec.paths !== 'object') {
+        return [];
+    }
+
+    const validMethods = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head']);
+    const endpoints: Array<{ path: string; methods: string[] }> = [];
+
+    for (const [rawPath, pathItem] of Object.entries(spec.paths as Record<string, any>)) {
+        if (!pathItem || typeof pathItem !== 'object') continue;
+        const methods = Object.keys(pathItem)
+            .filter((method) => validMethods.has(method.toLowerCase()))
+            .map((method) => method.toUpperCase());
+
+        if (methods.length > 0) {
+            endpoints.push({ path: normalizeOpenApiPath(rawPath), methods });
+        }
+    }
+
+    return endpoints;
 }
 
 // ─── Config File Loader ───────────────────────────────────────────────────────
@@ -87,10 +173,13 @@ function loadConfigFile(env?: string): Record<string, any> {
                 raw = raw.replace(/^\uFEFF/, '').trim();
                 const config = JSON.parse(raw);
                 console.log(chalk.gray(`   Config: ${name}${env ? ` (env: ${env})` : ''}\n`));
+                const envMerged = env && config.envs?.[env]
+                    ? { ...config, ...config.envs[env] }
+                    : config;
                 if (env && config.envs?.[env]) {
-                    return { ...config, ...config.envs[env] };
+                    return interpolateEnv(envMerged);
                 }
-                return config;
+                return interpolateEnv(envMerged);
             } catch (e) {
                 console.warn(chalk.yellow(`⚠️  Could not parse config file: ${name}`));
             }
@@ -379,7 +468,7 @@ function printDiffReport(diff: DiffResult) {
 
 // ─── HTML Report Generator ────────────────────────────────────────────────────
 
-function generateHTMLReport(data: ReportData, diff?: DiffResult | null): string {
+function writeHTMLReport(filePath: string, data: ReportData, diff?: DiffResult | null): Promise<void> {
     const passRate = data.summary.total > 0
         ? Math.round((data.summary.passed / data.summary.total) * 100)
         : 0;
@@ -389,21 +478,6 @@ function generateHTMLReport(data: ReportData, diff?: DiffResult | null): string 
         if (r.slow) return '#fef9c3';
         return '#f0fdf4';
     };
-
-    const rows = data.results.map(r => `
-    <tr style="background:${rowColor(r)}">
-      <td><span class="badge badge-${r.method.toLowerCase()}">${r.method}</span></td>
-      <td><code>${r.path}</code></td>
-      <td>${r.success
-            ? `<span class="ok">✔ ${r.status}</span>`
-            : `<span class="fail">✖ ${r.status || 'ERR'}</span>`
-        }</td>
-      <td>${r.slow ? `<span class="slow">⚠️ ${r.duration}ms</span>` : `${r.duration}ms`}</td>
-      <td>${r.retries > 0 ? `${r.retries} retry` : '—'}</td>
-      <td>${r.authMethod ? `<span class="auth-tag">${r.authMethod}</span>` : '—'}</td>
-      <td>${r.error ? `<span class="errtext">${r.error}</span>` : '—'}</td>
-    </tr>
-  `).join('');
 
     const diffSection = diff ? `
   <div class="diff-section">
@@ -423,7 +497,7 @@ function generateHTMLReport(data: ReportData, diff?: DiffResult | null): string 
     ${diff.removedEndpoints.length > 0 ? `<p class="yellow">🗑 Removed: ${diff.removedEndpoints.join(', ')}</p>` : ''}
   </div>` : '';
 
-    return `<!DOCTYPE html>
+        const head = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -468,6 +542,9 @@ function generateHTMLReport(data: ReportData, diff?: DiffResult | null): string 
     <div class="card"><div class="num red">${data.summary.failed}</div><div class="lbl">Failed</div></div>
     <div class="card"><div class="num yellow">${data.summary.slow}</div><div class="lbl">Slow (&gt;${data.config.slowThreshold}ms)</div></div>
     <div class="card"><div class="num blue">${data.summary.avgDuration}ms</div><div class="lbl">Avg Response</div></div>
+        <div class="card"><div class="num blue">${data.summary.p50Duration}ms</div><div class="lbl">p50</div></div>
+        <div class="card"><div class="num blue">${data.summary.p95Duration}ms</div><div class="lbl">p95</div></div>
+        <div class="card"><div class="num blue">${data.summary.p99Duration}ms</div><div class="lbl">p99</div></div>
     <div class="card"><div class="num ${passRate === 100 ? 'green' : passRate >= 80 ? 'yellow' : 'red'}">${passRate}%</div><div class="lbl">Pass Rate</div></div>
   </div>
 
@@ -477,7 +554,9 @@ function generateHTMLReport(data: ReportData, diff?: DiffResult | null): string 
     <thead>
       <tr><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Retries</th><th>Auth</th><th>Error</th></tr>
     </thead>
-    <tbody>${rows}</tbody>
+        <tbody>`;
+
+        const foot = `</tbody>
   </table>
 
   ${diffSection}
@@ -485,6 +564,30 @@ function generateHTMLReport(data: ReportData, diff?: DiffResult | null): string 
   <footer>APISnap v${data.version} — MIT License</footer>
 </body>
 </html>`;
+
+        return new Promise((resolve, reject) => {
+                const out = createWriteStream(filePath, { encoding: 'utf8' });
+                out.on('error', reject);
+                out.on('finish', resolve);
+
+                out.write(head);
+                for (const r of data.results) {
+                        out.write(`
+        <tr style="background:${rowColor(r)}">
+            <td><span class="badge badge-${r.method.toLowerCase()}">${r.method}</span></td>
+            <td><code>${r.path}</code></td>
+            <td>${r.success
+                                ? `<span class="ok">✔ ${r.status}</span>`
+                                : `<span class="fail">✖ ${r.status || 'ERR'}</span>`
+                        }</td>
+            <td>${r.slow ? `<span class="slow">⚠️ ${r.duration}ms</span>` : `${r.duration}ms`}</td>
+            <td>${r.retries > 0 ? `${r.retries} retry` : '—'}</td>
+            <td>${r.authMethod ? `<span class="auth-tag">${r.authMethod}</span>` : '—'}</td>
+            <td>${r.error ? `<span class="errtext">${r.error}</span>` : '—'}</td>
+        </tr>`);
+                }
+                out.end(foot);
+        });
 }
 
 // ─── Main CLI ─────────────────────────────────────────────────────────────────
@@ -545,6 +648,71 @@ program
     });
 
 program
+    .command('doctor')
+    .description('Diagnose your APISnap setup')
+    .option('-p, --port <number>', 'Port your server is running on')
+    .option('--env <name>', 'Use environment profile from config')
+    .action(async (options) => {
+        const fileConfig = loadConfigFile(options.env);
+        const port = options.port || fileConfig.port || '3000';
+        const discoveryUrl = `http://localhost:${port}/__apisnap_discovery`;
+
+        const checks: Array<{ name: string; run: () => Promise<boolean> }> = [
+            {
+                name: 'Config valid',
+                run: async () => validateConfig(fileConfig).length === 0,
+            },
+            {
+                name: 'Server reachable',
+                run: async () => {
+                    const res = await axios.get(discoveryUrl, { timeout: 2000, validateStatus: () => true });
+                    return res.status < 500;
+                },
+            },
+            {
+                name: 'Middleware installed',
+                run: async () => {
+                    const res = await axios.get(discoveryUrl, { timeout: 2000, validateStatus: () => true });
+                    return res.status === 200 && res.data?.tool === 'APISnap';
+                },
+            },
+        ];
+
+        if (fileConfig.authFlow) {
+            checks.push({
+                name: 'Auth flow works',
+                run: async () => {
+                    const baseUrl = fileConfig.baseUrl || `http://localhost:${port}`;
+                    const timeout = parseIntOption(fileConfig.timeout, 'timeout', 5000, { min: 100 });
+                    const authResult = await executeAuthFlow(fileConfig.authFlow, baseUrl, timeout);
+                    return !!authResult;
+                },
+            });
+        }
+
+        let failedChecks = 0;
+        console.log(chalk.bold('\n🩺 APISnap Doctor\n'));
+        for (const check of checks) {
+            try {
+                const ok = await check.run();
+                if (ok) {
+                    console.log(chalk.green(`  ✅ ${check.name}`));
+                } else {
+                    failedChecks++;
+                    console.log(chalk.red(`  ❌ ${check.name}`));
+                }
+            } catch (error: any) {
+                failedChecks++;
+                console.log(chalk.red(`  ❌ ${check.name}`));
+                console.log(chalk.gray(`     ${error.message}`));
+            }
+        }
+
+        console.log();
+        process.exit(failedChecks > 0 ? 1 : 0);
+    });
+
+program
     .name('apisnap')
     .description('Instant API health-check CLI for Express.js')
     .version(version)
@@ -560,6 +728,10 @@ program
     .option('--env <name>', 'Use environment profile from config')
     .option('--base-url <url>', 'Override base URL')
     .option('--params <json>', 'JSON map of param overrides')
+    .option('--filter <pattern>', 'Only test paths matching pattern (glob or substring)')
+    .option('--dry-run', 'Preview endpoints and config without sending requests')
+    .option('--watch', 'Re-run checks when project files change')
+    .option('--openapi <file>', 'Use OpenAPI JSON file for route discovery')
     .option('--fail-on-slow', 'Exit with code 1 if any slow routes are found')
     .option('--concurrency <number>', 'How many requests to run in parallel (default: 1)')
     .option('--body <json>', 'Default JSON body for POST/PUT/PATCH requests')
@@ -592,9 +764,13 @@ program
         const onlyMethods    = mergedOptions.only
             ? mergedOptions.only.split(',').map((m: string) => m.trim().toUpperCase())
             : null;
-        const paramOverrides = mergedOptions.params
+        const cliParams = mergedOptions.params
             ? (typeof mergedOptions.params === 'string' ? JSON.parse(mergedOptions.params) : mergedOptions.params)
-            : (fileConfig.params || {});
+            : {};
+        const paramOverrides = {
+            ...(fileConfig.params || {}),
+            ...(cliParams || {}),
+        };
         const defaultBody = mergedOptions.body
             ? (typeof mergedOptions.body === 'string' ? JSON.parse(mergedOptions.body) : mergedOptions.body)
             : (fileConfig.body || null);
@@ -602,6 +778,8 @@ program
         const discoveryUrl  = `http://localhost:${port}/__apisnap_discovery`;
         const useAuthFlow   = !!(mergedOptions.authFlow || mergedOptions['auth-flow']);
         const useSession    = !!mergedOptions.session;
+        const watchMode     = !!mergedOptions.watch;
+        let cachedEndpoints: any[] | null = null;
 
         const headerArgs = [
             ...(Array.isArray(mergedOptions.header) ? mergedOptions.header : []),
@@ -652,8 +830,26 @@ program
         const results: TestResult[] = [];
 
         try {
-            const discovery = await axios.get(discoveryUrl, { timeout: 5000 });
-            let { endpoints } = discovery.data;
+            let endpoints: any[] = [];
+            const openApiPath = mergedOptions.openapi ?? fileConfig.openapi;
+
+            if (openApiPath) {
+                const configuredPath = openApiPath === true ? './openapi.json' : String(openApiPath);
+                const resolvedOpenApi = path.isAbsolute(configuredPath)
+                    ? configuredPath
+                    : path.resolve(process.cwd(), configuredPath);
+                const openApiRaw = fs.readFileSync(resolvedOpenApi, 'utf-8');
+                const openApiSpec = JSON.parse(openApiRaw);
+                endpoints = parseOpenApiEndpoints(openApiSpec);
+                if (spinner) spinner.succeed(chalk.green(`Loaded ${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''} from OpenAPI spec.`));
+            } else if (watchMode && cachedEndpoints) {
+                endpoints = cachedEndpoints;
+                if (spinner) spinner.succeed(chalk.green(`Using cached discovery (${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''}).`));
+            } else {
+                const discovery = await axios.get(discoveryUrl, { timeout: 5000 });
+                endpoints = discovery.data.endpoints;
+                if (watchMode) cachedEndpoints = endpoints;
+            }
 
             if (fileConfig.skip?.length) {
                 endpoints = endpoints.filter((e: any) => !fileConfig.skip.some((s: string) => e.path.startsWith(s)));
@@ -663,7 +859,24 @@ program
                 endpoints = endpoints.filter((e: any) => e.methods.some((m: string) => onlyMethods.includes(m)));
             }
 
-            if (spinner) spinner.succeed(chalk.green(`Connected! Found ${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''} to test.\n`));
+            if (mergedOptions.filter) {
+                endpoints = endpoints.filter((e: any) => pathMatchesFilter(e.path, mergedOptions.filter));
+            }
+
+            if (spinner?.isSpinning) spinner.succeed(chalk.green(`Connected! Found ${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''} to test.\n`));
+
+            if (mergedOptions['dry-run']) {
+                if (!ciMode) {
+                    console.log(chalk.bold('\n🧪 Dry Run Endpoints:\n'));
+                    endpoints.forEach((e: any) => {
+                        const method = (e.methods?.[0] || 'GET').padEnd(7);
+                        const resolved = replacePath(e.path, paramOverrides);
+                        console.log(`  ${method} ${resolved}`);
+                    });
+                    console.log();
+                }
+                process.exit(0);
+            }
 
             let passed = 0, failed = 0, slow = 0;
             const allDurations: number[] = [];
@@ -678,6 +891,7 @@ program
                     (r: RouteConfig) => r.path === rawPath || r.path === resolvedPath
                 );
                 const requestBody = routeConfig?.body ?? defaultBody;
+                const routeTimeout = routeConfig?.timeout ?? timeout;
 
                 const requestHeaders = { ...customHeaders };
                 if (routeConfig?.headers) {
@@ -688,7 +902,7 @@ program
                     delete requestHeaders['Cookie'];
                 }
 
-                if (useSession && cookieJar.has()) {
+                if (useSession && cookieJar.has() && routeConfig?.auth !== 'none') {
                     const existing = requestHeaders['Cookie'] || '';
                     requestHeaders['Cookie'] = [existing, cookieJar.toString()].filter(Boolean).join('; ');
                 }
@@ -700,7 +914,7 @@ program
                     authMethod: routeConfig?.auth === 'none' ? 'none' : authMethod,
                 };
 
-                const testSpinner = ciMode ? null : ora({
+                const testSpinner = (ciMode || concurrency > 1) ? null : ora({
                     text: `${chalk.bold(method.padEnd(7))} ${chalk.dim(rawPath)}`,
                     prefixText: '  ',
                 }).start();
@@ -715,11 +929,20 @@ program
                             method,
                             url: fullUrl,
                             headers: requestHeaders,
-                            timeout,
+                            timeout: routeTimeout,
                             validateStatus: () => true,
                             data: ['POST', 'PUT', 'PATCH'].includes(method) ? requestBody : undefined,
                         });
                         const duration = Date.now() - start;
+
+                        if (res.status === 429) {
+                            const retryAfterMs = parseRetryAfterMs(res.headers['retry-after']);
+                            if (!ciMode) {
+                                process.stdout.write(chalk.gray(`     rate-limited — waiting ${retryAfterMs}ms...\n`));
+                            }
+                            await sleep(retryAfterMs);
+                            continue;
+                        }
 
                         if (useSession) cookieJar.ingest(res.headers['set-cookie']);
 
@@ -816,14 +1039,33 @@ program
                 }
             }
 
+            if (!ciMode && concurrency > 1) {
+                for (const r of results) {
+                    const statusLabel = r.success
+                        ? chalk.green(`[${r.status}]`)
+                        : chalk.red(`[${r.status || 'ERR'} ${r.statusText || ''}]`);
+                    const durationLabel = r.slow
+                        ? chalk.yellow.bold(`${r.duration}ms ← slow!`)
+                        : chalk.gray(`${r.duration}ms`);
+                    console.log(`  ${chalk.bold(r.method.padEnd(7))} ${chalk.white(r.path.padEnd(35))} ${statusLabel} ${durationLabel}`.trimEnd());
+                    if (!r.success && r.error) {
+                        console.log(chalk.gray(`     ${r.error}`));
+                    }
+                }
+            }
+
             const avgDuration   = allDurations.length > 0 ? Math.round(allDurations.reduce((a, b) => a + b, 0) / allDurations.length) : 0;
             const totalDuration = allDurations.reduce((a, b) => a + b, 0);
+            const sortedDurations = [...allDurations].sort((a, b) => a - b);
+            const p50Duration = percentile(sortedDurations, 50);
+            const p95Duration = percentile(sortedDurations, 95);
+            const p99Duration = percentile(sortedDurations, 99);
 
             const reportData: ReportData = {
                 tool: 'APISnap', version,
                 generatedAt: new Date().toISOString(),
                 config: { port, baseUrl, slowThreshold, timeout, headers: Object.keys(customHeaders).filter(k => k !== 'User-Agent') },
-                summary: { total: endpoints.length, passed, failed, slow, avgDuration, totalDuration },
+                summary: { total: endpoints.length, passed, failed, slow, avgDuration, totalDuration, p50Duration, p95Duration, p99Duration },
                 results,
             };
 
@@ -842,6 +1084,9 @@ program
                 console.log(`  ${chalk.red('❌ Failed: ')} ${chalk.bold(failed)}`);
                 console.log(`  ${chalk.yellow('⚠️  Slow:   ')} ${chalk.bold(slow)} (>${slowThreshold}ms)`);
                 console.log(`  ${chalk.cyan('⏱  Avg:    ')} ${chalk.bold(avgDuration + 'ms')}`);
+                console.log(`  ${chalk.cyan('📈 p50:    ')} ${chalk.bold(p50Duration + 'ms')}`);
+                console.log(`  ${chalk.cyan('📈 p95:    ')} ${chalk.bold(p95Duration + 'ms')}`);
+                console.log(`  ${chalk.cyan('📈 p99:    ')} ${chalk.bold(p99Duration + 'ms')}`);
                 console.log(`  ${chalk.cyan('🕐 Total:  ')} ${chalk.bold(totalDuration + 'ms')}`);
 
                 if (failed > 0) console.log(chalk.red.bold('\n⚠️  Some endpoints are unhealthy!'));
@@ -876,7 +1121,7 @@ program
 
             if (mergedOptions.html) {
                 const fp = mergedOptions.html.endsWith('.html') ? mergedOptions.html : `${mergedOptions.html}.html`;
-                fs.writeFileSync(fp, generateHTMLReport(reportData, diff));
+                await writeHTMLReport(fp, reportData, diff);
                 if (!ciMode) console.log(chalk.cyan(`🌐 HTML report → ${chalk.white(fp)}`));
             }
 
@@ -894,7 +1139,7 @@ program
             const hasRegressions = diff?.regressions?.length ?? 0;
             const shouldFail = failed > 0
                 || (mergedOptions['fail-on-slow'] && slow > 0)
-                || (ciMode && hasRegressions > 0);
+                || (hasRegressions > 0);
 
             process.exit(shouldFail ? 1 : 0);
 
