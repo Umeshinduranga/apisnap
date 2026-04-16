@@ -85,10 +85,13 @@ export const init = (app: any, options: APISnapOptions = {}) => {
     // Works by monkey-patching app.use to detect auth-style middleware.
     const originalUse = app.use.bind(app);
     app.use = function (...args: any[]) {
-        // If it's a global middleware (no path), wrap it to skip discovery route
-        if (typeof args[0] === 'function') {
-            const originalMiddleware = args[0];
-            args[0] = (req: Request, res: Response, next: NextFunction) => {
+        const middlewareIndex = typeof args[0] === 'function'
+            ? 0
+            : (typeof args[1] === 'function' ? 1 : -1);
+
+        if (middlewareIndex >= 0) {
+            const originalMiddleware = args[middlewareIndex];
+            args[middlewareIndex] = (req: Request, res: Response, next: NextFunction) => {
                 if (req.path === DISCOVERY_PATH) return next();
                 return originalMiddleware(req, res, next);
             };
