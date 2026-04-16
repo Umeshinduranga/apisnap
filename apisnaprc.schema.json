@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://umeshindu222.github.io/apisnap/apisnaprc.schema.json",
+  "title": "APISnap Configuration",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "port": {
+      "type": ["string", "number"],
+      "default": 3000
+    },
+    "slow": {
+      "type": ["string", "number"],
+      "default": 200
+    },
+    "timeout": {
+      "type": ["string", "number"],
+      "default": 5000
+    },
+    "retry": {
+      "type": ["string", "number"],
+      "default": 0
+    },
+    "concurrency": {
+      "type": ["string", "number"],
+      "default": 1
+    },
+    "baseUrl": {
+      "type": "string"
+    },
+    "openapi": {
+      "type": ["string", "boolean"],
+      "description": "Path to OpenAPI JSON file used for discovery"
+    },
+    "cookie": {
+      "type": "string"
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"]
+      }
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "skip": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authFlow": {
+      "$ref": "#/definitions/AuthFlow"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RouteConfig"
+      }
+    },
+    "envs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
+      }
+    }
+  },
+  "definitions": {
+    "AuthFlow": {
+      "type": "object",
+      "required": ["url", "body", "tokenPath"],
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "tokenPath": {
+          "type": "string"
+        },
+        "headerName": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        }
+      }
+    },
+    "RouteConfig": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auth": {
+          "type": "string",
+          "enum": ["none"]
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
