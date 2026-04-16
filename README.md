@@ -27,7 +27,7 @@ apisnap.init(app);  // ← must be AFTER your routes
 
 [![npm version](https://img.shields.io/npm/v/@umeshindu222/apisnap.svg)](https://www.npmjs.com/package/@umeshindu222/apisnap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Socket Badge](https://badge.socket.dev/npm/package/@umeshindu222/apisnap/1.2.1)](https://socket.dev/npm/package/%40umeshindu222%2Fapisnap)
+[![Socket Badge](https://badge.socket.dev/npm/package/@umeshindu222/apisnap/1.2.3)](https://socket.dev/npm/package/%40umeshindu222%2Fapisnap)
 
 ---
 
@@ -49,10 +49,16 @@ One command. Every route. Instant results.
 -  **Auth Hints** - tells you exactly how to fix 401/403 errors
 -  **Slow Route Detection** - flags endpoints that are too slow
 -  **Retry Logic** - auto-retries failed requests
+-  **Rate-limit Backoff** - honors `429 Retry-After` and retries automatically
 -  **HTML Reports** - beautiful visual reports you can share
 -  **JSON Export** - structured output for CI/CD pipelines
 -  **Config File** - save your settings so you don't retype every time
 -  **Method Filter** - test only GET, POST, DELETE etc.
+-  **Path Filter + Dry Run** - target a route subset and preview without requests
+-  **OpenAPI Discovery** - load routes from an OpenAPI JSON spec
+-  **Baseline Diffing** - compare against saved runs and fail on regressions
+-  **Latency Percentiles** - p50 / p95 / p99 in terminal and reports
+-  **Doctor Command** - quick setup diagnostics
 -  **Smart Path Params** - auto-replaces `:id`, `:slug`, `:uuid` with safe defaults
 -  **Express v4 & v5** - works with both versions
 
@@ -318,15 +324,45 @@ APISnap reads the config file automatically.
 
 > ⚠️ **Add `.apisnaprc.json` to your `.gitignore`** so your token is never committed to GitHub.
 
+### Config Schema + Secrets
+
+Use the bundled schema for autocomplete and validation:
+
+```json
+{
+  "$schema": "./apisnaprc.schema.json"
+}
+```
+
+You can reference environment variables anywhere in config values:
+
+```json
+{
+  "headers": [
+    "Authorization: Bearer $API_TOKEN"
+  ],
+  "authFlow": {
+    "url": "/auth/login",
+    "body": {
+      "username": "$API_USER",
+      "password": "$API_PASSWORD"
+    },
+    "tokenPath": "token"
+  }
+}
+```
+
 ### Full Config File Options
 
 ```json
 {
+  "$schema": "./apisnaprc.schema.json",
   "port": "3000",
   "slow": "300",
   "timeout": "5000",
   "retry": "1",
   "concurrency": 5,
+  "openapi": "./openapi.json",
   "body": {
     "name": "test",
     "email": "test@example.com"
@@ -345,13 +381,19 @@ APISnap reads the config file automatically.
   "routes": [
     {
       "path": "/api/users",
-      "body": { "name": "John", "email": "john@example.com" }
+      "body": { "name": "John", "email": "john@example.com" },
+      "timeout": 10000
     },
     {
       "path": "/api/products",
       "body": { "title": "Widget", "price": 9.99 }
     }
-  ]
+  ],
+  "envs": {
+    "staging": {
+      "baseUrl": "https://staging.example.com"
+    }
+  }
 }
 ```
 
@@ -361,6 +403,7 @@ APISnap reads the config file automatically.
 
 ```bash
 npx @umeshindu222/apisnap [options]
+npx @umeshindu222/apisnap doctor [options]
 ```
 
 | Option | Description | Default |
@@ -374,11 +417,28 @@ npx @umeshindu222/apisnap [options]
 | `-e, --export <file>` | Save JSON report to file | — |
 | `--html <file>` | Save HTML report to file | — |
 | `--only <methods>` | Only test these methods e.g. `GET,POST` | — |
+| `--filter <pattern>` | Path substring/glob filter e.g. `/api/users*` | — |
 | `--base-url <url>` | Test a different server e.g. staging | `localhost` |
 | `--params <json>` | Override path params as JSON | — |
+| `--dry-run` | Print resolved endpoint plan and exit | `false` |
 | `--fail-on-slow` | Exit code 1 if slow routes found | `false` |
 | `--concurrency <n>` | Concurrent requests to run | `1` |
 | `--body <json>` | Default JSON body for POST/PUT/PATCH | — |
+| `--auth-flow` | Execute configured authFlow login before tests | `false` |
+| `--session` | Capture/replay cookies from responses | `false` |
+| `--save-baseline <file>` | Save run as baseline JSON | — |
+| `--diff <file>` | Compare against baseline and show regressions | — |
+| `--openapi <file>` | Discover routes from OpenAPI JSON | — |
+| `--ci` | CI-friendly JSON output and strict exit logic | `false` |
+| `--env <name>` | Load environment profile from config | — |
+
+Doctor options:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `doctor` | Diagnose config, server reachability, and middleware wiring | — |
+| `doctor -p, --port <n>` | Port to diagnose | config/`3000` |
+| `doctor --env <name>` | Diagnose a specific config environment | — |
 
 ---
 
@@ -439,6 +499,31 @@ npx @umeshindu222/apisnap --export report
 npx @umeshindu222/apisnap --retry 3
 ```
 
+### Preview routes only (no HTTP calls)
+```bash
+npx @umeshindu222/apisnap --dry-run --filter "/api/users*"
+```
+
+### Diff against baseline and fail on regressions
+```bash
+npx @umeshindu222/apisnap --diff baseline.json
+```
+
+### Save a baseline for future comparisons
+```bash
+npx @umeshindu222/apisnap --save-baseline baseline.json
+```
+
+### Discover from OpenAPI instead of live discovery
+```bash
+npx @umeshindu222/apisnap --openapi ./openapi.json
+```
+
+### Run setup diagnostics
+```bash
+npx @umeshindu222/apisnap doctor -p 3000
+```
+
 ### CI/CD — fail the pipeline if any endpoint is broken
 ```bash
 npx @umeshindu222/apisnap --export ci-report
@@ -463,7 +548,7 @@ npx @umeshindu222/apisnap \
 ## Sample Output
 
 ```
-📸 APISnap v1.1.4
+📸 APISnap v1.2.3
    Target:     http://localhost:3000
    Slow:       >200ms
    Timeout:    5000ms
@@ -484,6 +569,9 @@ npx @umeshindu222/apisnap \
   ❌ Failed:  1
   ⚠️  Slow:    1 (>200ms)
   ⏱  Avg:    95ms
+  📈 p50:    12ms
+  📈 p95:    543ms
+  📈 p99:    543ms
   🕐 Total:  573ms
 
 ⚠️  Some endpoints are unhealthy!
@@ -496,7 +584,7 @@ npx @umeshindu222/apisnap \
 ```json
 {
   "tool": "APISnap",
-  "version": "1.1.4",
+  "version": "1.2.3",
   "generatedAt": "2026-03-08T10:00:00.000Z",
   "config": {
     "port": "3000",
@@ -509,6 +597,9 @@ npx @umeshindu222/apisnap \
     "failed": 1,
     "slow": 1,
     "avgDuration": 95,
+    "p50Duration": 12,
+    "p95Duration": 543,
+    "p99Duration": 543,
     "totalDuration": 573
   },
   "results": [
