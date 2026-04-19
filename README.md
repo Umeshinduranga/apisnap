@@ -1,5 +1,5 @@
 
-<img width="4368" height="2112" alt="Group 1" src="https://github.com/user-attachments/assets/c162b436-1c64-470e-9f41-e5ceb09a31d4" />
+<img width="3000" height="1000" alt="Group 1" src="https://github.com/user-attachments/assets/c162b436-1c64-470e-9f41-e5ceb09a31d4" />
 
 
 ## Quick start
@@ -37,7 +37,7 @@ Every time you change your Express backend, manually testing all your routes in 
 
 One command. Every route. Instant results.
 
-<img width="700" height="500" alt="image" src="https://github.com/user-attachments/assets/325c7b40-37d5-47e1-830f-db1424956fee" />
+<img width="700" height="300" alt="image" src="https://github.com/user-attachments/assets/325c7b40-37d5-47e1-830f-db1424956fee" />
 
 
 ---
