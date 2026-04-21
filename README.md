@@ -1,5 +1,5 @@
 
-<img width="3000" height="1000" alt="Group 1" src="https://github.com/user-attachments/assets/c162b436-1c64-470e-9f41-e5ceb09a31d4" />
+<img width="3000" height="1500" alt="Group 1" src="https://github.com/user-attachments/assets/c162b436-1c64-470e-9f41-e5ceb09a31d4" />
 
 
 ## Quick start
