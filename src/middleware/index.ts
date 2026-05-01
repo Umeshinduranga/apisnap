@@ -82,20 +82,29 @@ export const init = (app: any, options: APISnapOptions = {}) => {
     // ─── Auth Bypass Middleware ───────────────────────────────────────────────
     // This intercepts requests to the discovery path and short-circuits any
     // downstream auth middleware the user may have added globally.
-    // Works by monkey-patching app.use to detect auth-style middleware.
+    // Uses a safer approach: wraps the entire app with a guard middleware.
     const originalUse = app.use.bind(app);
+    let useCallCount = 0;
+
     app.use = function (...args: any[]) {
         const middlewareIndex = typeof args[0] === 'function'
             ? 0
             : (typeof args[1] === 'function' ? 1 : -1);
 
-        if (middlewareIndex >= 0) {
+        // Only apply wrapping to actual middleware functions (0 or 1 argument position)
+        // Skip wrapping on the first call to avoid infinite recursion
+        if (middlewareIndex >= 0 && useCallCount > 0) {
             const originalMiddleware = args[middlewareIndex];
+            // Wrap middleware to bypass discovery path
             args[middlewareIndex] = (req: Request, res: Response, next: NextFunction) => {
-                if (req.path === DISCOVERY_PATH) return next();
+                // Allow discovery endpoint to bypass auth
+                if (req.path === DISCOVERY_PATH) {
+                    return next();
+                }
                 return originalMiddleware(req, res, next);
             };
         }
+        useCallCount++;
         return originalUse(...args);
     };
 
