@@ -109,9 +109,22 @@ function pathMatchesFilter(pathname: string, pattern: string): boolean {
 }
 
 function percentile(sorted: number[], p: number): number {
+    // Defensive: handle empty array
     if (sorted.length === 0) return 0;
+
+    // Validate percentile input (should be 0-100)
+    if (p < 0 || p > 100) {
+        console.warn(`⚠️ Invalid percentile value: ${p}. Expected 0-100. Using 0.`);
+        return sorted[0];
+    }
+
+    // Calculate the index for the given percentile
+    // Formula: Math.ceil((p / 100) * length) - 1
     const index = Math.ceil((p / 100) * sorted.length) - 1;
-    return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+
+    // Clamp index to valid range [0, length-1] to prevent out-of-bounds access
+    const safeIndex = Math.max(0, Math.min(index, sorted.length - 1));
+    return sorted[safeIndex];
 }
 
 function parseRetryAfterMs(retryAfterHeader: string | string[] | undefined): number {
@@ -136,7 +149,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 function normalizeOpenApiPath(p: string): string {
-    return p.replace(/\{([^}]+)\}/g, ':$1');
+    // Validate OpenAPI path format before conversion
+    if (!p || typeof p !== 'string') return '';
+
+    // Check for basic well-formedness (balanced braces)
+    const openBraces = (p.match(/\{/g) || []).length;
+    const closeBraces = (p.match(/\}/g) || []).length;
+    if (openBraces !== closeBraces) {
+        console.warn(`⚠️ Malformed OpenAPI path: "${p}" (unbalanced braces). Skipping.`);
+        return '';
+    }
+
+    // Convert {param} to :param notation
+    return p.replace(/\{([^{}]+)\}/g, ':$1');
 }
 
 function parseOpenApiEndpoints(spec: any): Array<{ path: string; methods: string[] }> {
@@ -319,10 +344,23 @@ class CookieJar {
         if (!setCookieHeaders) return;
         const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
         for (const header of headers) {
-            const [kv] = header.split(';');
-            const idx = kv.indexOf('=');
-            if (idx > 0) {
-                this.cookies.set(kv.slice(0, idx).trim(), kv.slice(idx + 1).trim());
+            try {
+                // Extract the name=value portion before any attributes like Path, Secure, etc.
+                const [kv] = header.split(';');
+                if (!kv || typeof kv !== 'string') continue;
+
+                const idx = kv.indexOf('=');
+                // Only process if there's a valid key=value format
+                if (idx > 0 && idx < kv.length - 1) {
+                    const cookieName = kv.slice(0, idx).trim();
+                    const cookieValue = kv.slice(idx + 1).trim();
+                    if (cookieName && cookieValue) {
+                        this.cookies.set(cookieName, cookieValue);
+                    }
+                }
+            } catch (err: any) {
+                // Silently skip malformed cookies instead of crashing
+                // In production, you might want to log this
             }
         }
     }
@@ -364,16 +402,21 @@ async function runWithConcurrency<T>(
     tasks: (() => Promise<T>)[],
     limit: number
 ): Promise<(T | Error)[]> {
+    if (tasks.length === 0) return [];
+
     const results: (T | Error)[] = Array.from({ length: tasks.length }, () => new Error('Task never executed'));
-    let index = 0;
+    let nextIndex = 0;
 
     async function worker() {
-        while (index < tasks.length) {
-            const i = index++;
+        while (nextIndex < tasks.length) {
+            const currentIndex = nextIndex++;
+            // Safeguard against out-of-bounds access if another worker incremented nextIndex
+            if (currentIndex >= tasks.length) break;
+
             try {
-                results[i] = await tasks[i]();
+                results[currentIndex] = await tasks[currentIndex]();
             } catch (err) {
-                results[i] = err instanceof Error ? err : new Error(String(err));
+                results[currentIndex] = err instanceof Error ? err : new Error(String(err));
             }
         }
     }
@@ -567,11 +610,16 @@ function writeHTMLReport(filePath: string, data: ReportData, diff?: DiffResult |
 
         return new Promise((resolve, reject) => {
                 const out = createWriteStream(filePath, { encoding: 'utf8' });
-                out.on('error', reject);
+
+                // Ensure errors during write are properly captured and rejected
+                out.on('error', (err) => {
+                    reject(new Error(`Failed to write HTML report to ${filePath}: ${err.message}`));
+                });
                 out.on('finish', resolve);
 
-                out.write(head);
-                for (const r of data.results) {
+                try {
+                    out.write(head);
+                    for (const r of data.results) {
                         out.write(`
         <tr style="background:${rowColor(r)}">
             <td><span class="badge badge-${r.method.toLowerCase()}">${r.method}</span></td>
@@ -585,8 +633,12 @@ function writeHTMLReport(filePath: string, data: ReportData, diff?: DiffResult |
             <td>${r.authMethod ? `<span class="auth-tag">${r.authMethod}</span>` : '—'}</td>
             <td>${r.error ? `<span class="errtext">${r.error}</span>` : '—'}</td>
         </tr>`);
+                    }
+                    out.end(foot);
+                } catch (err: any) {
+                    out.destroy();
+                    reject(new Error(`Error generating HTML report: ${err.message}`));
                 }
-                out.end(foot);
         });
 }
 
@@ -865,6 +917,15 @@ program
 
             if (spinner?.isSpinning) spinner.succeed(chalk.green(`Connected! Found ${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''} to test.\n`));
 
+            // Safeguard: if no endpoints remain after filtering, exit gracefully
+            if (endpoints.length === 0) {
+                if (!ciMode) {
+                    console.log(chalk.yellow('\n⚠️  No endpoints found to test after applying filters.\n'));
+                    if (mergedOptions.filter) console.log(chalk.gray(`   Check your --filter pattern: "${mergedOptions.filter}"\n`));
+                }
+                process.exit(0);
+            }
+
             if (mergedOptions['dry-run']) {
                 if (!ciMode) {
                     console.log(chalk.bold('\n🧪 Dry Run Endpoints:\n'));
@@ -882,7 +943,8 @@ program
             const allDurations: number[] = [];
 
             const tasks = endpoints.map((endpoint: any) => async (): Promise<TestResult> => {
-                const method      = endpoint.methods[0];
+                // Safely access the first method, defaulting to GET if none available
+                const method      = endpoint.methods?.[0] || 'GET';
                 const rawPath     = endpoint.path;
                 const resolvedPath = replacePath(rawPath, paramOverrides);
                 const fullUrl     = `${baseUrl}${resolvedPath}`;
